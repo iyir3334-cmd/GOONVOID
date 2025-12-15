@@ -12,7 +12,15 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 
 // Serve static files from the build directory
-app.use(express.static(path.join(__dirname, 'dist')));
+app.use(express.static(path.join(__dirname, 'dist'), {
+    setHeaders: (res, filePath) => {
+        if (filePath.endsWith('.js')) {
+            res.setHeader('Content-Type', 'application/javascript');
+        } else if (filePath.endsWith('.css')) {
+            res.setHeader('Content-Type', 'text/css');
+        }
+    }
+}));
 
 // Proxy endpoint
 app.get('/proxy', async (req, res) => {
