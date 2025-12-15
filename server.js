@@ -12,6 +12,12 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 
 // Serve static files from the build directory
+// Explicitly serve uploads with debug logging to verify video requests
+app.use('/uploads', (req, res, next) => {
+    console.log(`[Server] Serving upload: ${req.url}`);
+    next();
+}, express.static(path.join(__dirname, 'dist', 'uploads')));
+
 app.use(express.static(path.join(__dirname, 'dist'), {
     setHeaders: (res, filePath) => {
         if (filePath.endsWith('.js')) {
