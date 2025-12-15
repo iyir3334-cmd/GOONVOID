@@ -210,6 +210,13 @@ const applyFallbackHeuristics = (pageUrl: string): string | null => {
 const genericGetStream = async (pageUrl: string): Promise<string> => {
     console.log(`[videoService:genericGetStream] Getting stream for page: ${pageUrl}`);
 
+    // 0. Direct file check (Optimization)
+    // If the URL is already a video file, return it directly.
+    if (pageUrl.match(/\.(mp4|webm|mov|m3u8)(\?|$)/i)) {
+        console.log(`[videoService] URL is already a direct video link: ${pageUrl}`);
+        return pageUrl;
+    }
+
     // 1. Try Heuristics first
     const heuristicUrl = applyFallbackHeuristics(pageUrl);
     if (heuristicUrl) {
