@@ -44,15 +44,17 @@ export default defineConfig(({ mode }) => {
                 console.error(`[LocalProxy] Upstream Block/Error: ${response.status}`);
               }
 
-              const contentType = response.headers.get('content-type') || 'text/html';
-              const text = await response.text();
+              const contentType = response.headers.get('content-type') || 'application/octet-stream';
 
               // Forward important headers
               res.setHeader('Content-Type', contentType);
               res.setHeader('Access-Control-Allow-Origin', '*');
 
+              const arrayBuffer = await response.arrayBuffer();
+              const buffer = Buffer.from(arrayBuffer);
+
               res.statusCode = response.status;
-              res.end(text);
+              res.end(buffer);
 
             } catch (e: any) {
               console.error('[LocalProxy] Error:', e);

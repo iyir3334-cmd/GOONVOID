@@ -73,6 +73,8 @@ const App: React.FC = () => {
   const [localVideos, setLocalVideos] = useState<LocalVideo[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [isFeedView, setIsFeedView] = useState(false); // Toggle for Vertical Feed
+  const [feedVideos, setFeedVideos] = useState<VideoResult[]>([]);
+  const [feedTitle, setFeedTitle] = useState("Feed View");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Goon Features
@@ -353,6 +355,18 @@ const App: React.FC = () => {
       .catch(err => console.error("Failed to load public gallery", err));
   }, []);
 
+  const openFeed = (videos: VideoResult[], title: string) => {
+    const shuffled = [...videos];
+    // Fisher-Yates shuffle
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    setFeedVideos(shuffled);
+    setFeedTitle(title);
+    setIsFeedView(true);
+  };
+
   return (
     <div className="min-h-screen text-white flex flex-col items-center p-4 sm:p-6 lg:p-8 relative z-20">
 
@@ -368,9 +382,10 @@ const App: React.FC = () => {
       {/* Vertical Feed Overlay */}
       {isFeedView && (
         <VerticalFeed
-          videos={localVideos}
+          videos={feedVideos}
           onClose={() => setIsFeedView(false)}
-          onDelete={handleDeleteLocalVideo}
+          onDelete={activeTab === 'downloads' ? handleDeleteLocalVideo : undefined}
+          title={feedTitle}
         />
       )}
 
@@ -528,38 +543,48 @@ const App: React.FC = () => {
               <div>
                 {/* Results Filter Tabs */}
                 {videoResults.length > 0 && (
-                  <div className="flex overflow-x-auto pb-4 mb-4 gap-2 border-b border-gray-800 scrollbar-hide">
-                    <button
-                      onClick={() => setSelectedResultProvider('all')}
-                      className={`
+                  <div className="flex flex-col sm:flex-row gap-4 mb-4 border-b border-gray-800 pb-4 justify-between items-start sm:items-center">
+                    <div className="flex overflow-x-auto gap-2 scrollbar-hide w-full sm:w-auto">
+                      <button
+                        onClick={() => setSelectedResultProvider('all')}
+                        className={`
                         px-4 py-1 text-xs font-bold uppercase tracking-widest whitespace-nowrap border transition-all
                         ${selectedResultProvider === 'all'
-                          ? 'bg-white text-black border-white'
-                          : 'bg-black text-gray-500 border-gray-800 hover:border-gray-500 hover:text-white'}
+                            ? 'bg-white text-black border-white'
+                            : 'bg-black text-gray-500 border-gray-800 hover:border-gray-500 hover:text-white'}
                       `}
-                    >
-                      ALL ({videoResults.length})
-                    </button>
+                      >
+                        ALL ({videoResults.length})
+                      </button>
 
-                    {Array.from(new Set(videoResults.map(v => v.source))).map((s) => {
-                      const source = s as ProviderKey;
-                      const count = videoResults.filter(v => v.source === source).length;
-                      const providerName = PROVIDERS[source]?.name || source;
-                      return (
-                        <button
-                          key={source}
-                          onClick={() => setSelectedResultProvider(source)}
-                          className={`
+                      {Array.from(new Set(videoResults.map(v => v.source))).map((s) => {
+                        const source = s as ProviderKey;
+                        const count = videoResults.filter(v => v.source === source).length;
+                        const providerName = PROVIDERS[source]?.name || source;
+                        return (
+                          <button
+                            key={source}
+                            onClick={() => setSelectedResultProvider(source)}
+                            className={`
                             px-4 py-1 text-xs font-bold uppercase tracking-widest whitespace-nowrap border transition-all
                             ${selectedResultProvider === source
-                              ? 'bg-white text-black border-white'
-                              : 'bg-black text-gray-500 border-gray-800 hover:border-gray-500 hover:text-white'}
+                                ? 'bg-white text-black border-white'
+                                : 'bg-black text-gray-500 border-gray-800 hover:border-gray-500 hover:text-white'}
                           `}
-                        >
-                          {providerName} ({count})
-                        </button>
-                      );
-                    })}
+                          >
+                            {providerName} ({count})
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    <button
+                      onClick={() => openFeed(videoResults, `Search Results: ${videoResults.length}`)}
+                      className="whitespace-nowrap flex items-center gap-2 px-4 py-2 bg-white text-black font-bold uppercase tracking-widest text-xs hover:bg-gray-200 transition-all shadow-[0_0_10px_rgba(255,255,255,0.4)]"
+                    >
+                      <PlayIcon />
+                      Shuffle Feed
+                    </button>
                   </div>
                 )}
 
@@ -577,11 +602,27 @@ const App: React.FC = () => {
             {/* PUBLIC GALLERY TAB CONTENT */}
             {activeTab === 'gallery' && (
               <div className="space-y-6 animate-in fade-in duration-300">
-                <div className="bg-gray-900/50 p-4 border border-white/20 text-center">
+                <div className="bg-gray-900/50 p-4 border border-white/20 text-center relative">
                   <h2 className="text-xl font-bold uppercase tracking-widest text-white mb-2">Community Gallery</h2>
                   <p className="text-xs text-gray-400 uppercase">
                     Curated videos from the Void. Uploads are managed by Admins via GitHub.
                   </p>
+                  {publicVideos.length > 0 && (
+                    <div className="mt-4 flex justify-center">
+                      <button
+                        onClick={() => openFeed(publicVideos.map(v => ({
+                          title: v.title,
+                          pageUrl: v.url,
+                          thumbnailUrl: v.thumbnail,
+                          source: 'generic'
+                        })), "Community Gallery")}
+                        className="whitespace-nowrap flex items-center gap-2 px-6 py-2 bg-white text-black font-bold uppercase tracking-widest text-sm hover:bg-gray-200 transition-all shadow-[0_0_15px_rgba(255,255,255,0.5)]"
+                      >
+                        <PlayIcon />
+                        Start Random Feed
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 {publicVideos.length === 0 ? (
@@ -667,7 +708,13 @@ const App: React.FC = () => {
                     />
                     {localVideos.length > 0 && (
                       <button
-                        onClick={() => setIsFeedView(true)}
+                        onClick={() => openFeed(localVideos.map(v => ({
+                          id: v.id,
+                          title: v.title,
+                          pageUrl: URL.createObjectURL(v.blob),
+                          thumbnailUrl: '',
+                          source: 'generic'
+                        })), "Private Vault")}
                         className="whitespace-nowrap flex items-center gap-2 px-4 py-2 bg-white text-black font-bold uppercase tracking-widest text-xs hover:bg-gray-200 transition-all"
                       >
                         <PlayIcon />

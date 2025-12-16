@@ -4,6 +4,7 @@ import { extractVideoResultsFromHtml, extractStreamUrlFromHtml } from './htmlPar
 export type ProviderKey = 'pornhub' | 'xvideos' | 'brazz' | 'generic';
 
 export interface VideoResult {
+    id?: string;
     title: string;
     pageUrl: string;
     thumbnailUrl: string;
@@ -53,30 +54,60 @@ export const resolvePlayableUrl = async (embedUrl: string): Promise<string | nul
         console.log(`[videoService:resolvePlayableUrl] Digging into embed: ${embedUrl}`);
         const html = await fetchSource(embedUrl);
 
+        // --- STRATEGY 1: XVideos / Generic HTML5 Player Specific Keys ---
+        // XVideos uses html5player.setVideoUrlHigh('...') or Low
+        const xvHigh = html.match(/setVideoUrlHigh\(['"]([^'"]+)['"]\)/);
+        if (xvHigh && xvHigh[1]) {
+            console.log(`[videoService] Found XVideos HIGH match`);
+            return xvHigh[1];
+        }
+
+        const xvLow = html.match(/setVideoUrlLow\(['"]([^'"]+)['"]\)/);
+        if (xvLow && xvLow[1]) {
+            console.log(`[videoService] Found XVideos LOW match`);
+            return xvLow[1];
+        }
+
+        // --- STRATEGY 2: Generic MP4 Regex with Filtering ---
         // 1. Direct file regex strategy (mp4, webm, mov)
         const mp4Regex = /(https?:\\?\/\\?\/[^"'\s<>]+\.(?:mp4|webm|mov))/gi;
         const matches = html.match(mp4Regex);
 
         if (matches && matches.length > 0) {
-            // Clean up the URL (remove backslashes from JSON escaping)
-            let bestMatch = matches[0].replace(/\\/g, '');
+            // Filter out obviously wrong files (previews, thumbnails, ads)
+            const validMatches = matches.filter(url => {
+                const lower = url.toLowerCase();
+                return !lower.includes('preview') &&
+                    !lower.includes('thumb') &&
+                    !lower.includes('ad_') &&
+                    !lower.includes('doubleclick');
+            });
 
-            // Prefer matches that have high resolution indicators
-            const highResMatch = matches.find(m => m.includes('1080') || m.includes('720') || m.includes('hd'));
-            if (highResMatch) {
-                bestMatch = highResMatch.replace(/\\/g, '');
+            if (validMatches.length > 0) {
+                // Clean up the URL (remove backslashes from JSON escaping)
+                let bestMatch = validMatches[0].replace(/\\/g, '');
+
+                // Prefer matches that have high resolution indicators
+                const highResMatch = validMatches.find(m => m.includes('1080') || m.includes('720') || m.includes('hd') || m.includes('high'));
+                if (highResMatch) {
+                    bestMatch = highResMatch.replace(/\\/g, '');
+                }
+
+                console.log(`[videoService:resolvePlayableUrl] Found file via Regex: ${bestMatch}`);
+                return bestMatch;
             }
-
-            console.log(`[videoService:resolvePlayableUrl] Found file via Regex: ${bestMatch}`);
-            return bestMatch;
         }
 
-        // 2. HLS Fallback (m3u8) - We return it, but download logic might need to handle it or fail gracefully
+        // 3. HLS Fallback (m3u8) - We return it, but download logic might need to handle it or fail gracefully
         const m3u8Regex = /(https?:\\?\/\\?\/[^"'\s<>]+\.m3u8)/gi;
         const m3u8Matches = html.match(m3u8Regex);
         if (m3u8Matches && m3u8Matches.length > 0) {
-            console.log(`[videoService:resolvePlayableUrl] Found HLS stream (fallback): ${m3u8Matches[0]}`);
-            return m3u8Matches[0].replace(/\\/g, '');
+            // Filter hls previews if any (unlikely for m3u8 but possible)
+            const validHls = m3u8Matches.filter(u => !u.includes('preview'));
+            if (validHls.length > 0) {
+                console.log(`[videoService:resolvePlayableUrl] Found HLS stream (fallback): ${validHls[0]}`);
+                return validHls[0].replace(/\\/g, '');
+            }
         }
 
         return null;
