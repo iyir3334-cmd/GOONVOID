@@ -418,7 +418,6 @@ export const getProviderKeyFromUrl = (url: string): ProviderKey => {
     }
     return 'generic'; // Fallback to generic direct link handler
 };
-<<<<<<< HEAD
 
 export const getTrendingVideos = async (providerKey: ProviderKey): Promise<VideoResult[]> => {
     if (!PROVIDERS[providerKey]?.getTrending) return [];
@@ -429,5 +428,3 @@ export const getTrendingPornstars = async (providerKey: ProviderKey): Promise<Po
     if (!PROVIDERS[providerKey]?.getPornstars) return [];
     return PROVIDERS[providerKey].getPornstars();
 };
-=======
->>>>>>> 71ff8c9ad8084b891fde8c4ac51229da259d3bbc
