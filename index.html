@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="referrer" content="no-referrer" />
+  <title>Gooner's Void</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Frijole&family=Orbitron:wght@400;700;900&display=swap"
+    rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+  <style>
+    :root {
+      --glow-white: #ffffff;
+      --glow-dim: #4a4a4a;
+      --bg-void: #000000;
+    }
+
+    body {
+      background-color: var(--bg-void);
+      color: #fff;
+      font-family: 'Orbitron', sans-serif;
+      /* Industrial/Sci-fi font */
+      overflow-x: hidden;
+    }
+
+    /* CRT Scanline Overlay */
+    .scanlines {
+      background: linear-gradient(to bottom,
+          rgba(255, 255, 255, 0),
+          rgba(255, 255, 255, 0) 50%,
+          rgba(0, 0, 0, 0.2) 50%,
+          rgba(0, 0, 0, 0.2));
+      background-size: 100% 3px;
+      position: fixed;
+      pointer-events: none;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 40;
+      opacity: 0.5;
+    }
+
+    /* Stains Overlay */
+    .stains {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      pointer-events: none;
+      z-index: 5;
+      opacity: 0.4;
+      background-image:
+        radial-gradient(circle at 20% 35%, rgba(255, 255, 255, 0.15) 0%, transparent 20%),
+        radial-gradient(circle at 75% 15%, rgba(255, 255, 255, 0.12) 0%, transparent 15%),
+        radial-gradient(ellipse at 40% 85%, rgba(255, 255, 255, 0.1) 0%, transparent 25%),
+        radial-gradient(circle at 85% 85%, rgba(255, 255, 255, 0.14) 0%, transparent 18%),
+        radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 0.05) 0%, transparent 40%);
+      filter: blur(25px) contrast(120%);
+      mix-blend-mode: screen;
+    }
+
+    @keyframes neon-glow {
+
+      0%,
+      100% {
+        text-shadow: 0 0 5px rgba(255, 255, 255, 0.5), 0 0 10px rgba(255, 255, 255, 0.5);
+      }
+
+      50% {
+        text-shadow: 0 0 15px rgba(255, 255, 255, 0.8), 0 0 25px rgba(255, 255, 255, 0.9);
+      }
+    }
+
+    .neon-text {
+      animation: neon-glow 4s ease-in-out infinite;
+      color: white;
+    }
+
+    @keyframes pulse-border {
+      0% {
+        box-shadow: 0 0 5px rgba(255, 255, 255, 0.2);
+        border-color: rgba(255, 255, 255, 0.3);
+      }
+
+      50% {
+        box-shadow: 0 0 20px rgba(255, 255, 255, 0.6);
+        border-color: rgba(255, 255, 255, 0.8);
+      }
+
+      100% {
+        box-shadow: 0 0 5px rgba(255, 255, 255, 0.2);
+        border-color: rgba(255, 255, 255, 0.3);
+      }
+    }
+
+    .pulse-glow {
+      animation: pulse-border 3s infinite;
+      border: 1px solid #fff;
+    }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar {
+      width: 8px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: #000;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: #333;
+      border: 1px solid #fff;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background: #fff;
+    }
+  </style>
+  <script type="importmap">
+{
+  "imports": {
+    "react/": "https://aistudiocdn.com/react@^19.2.0/",
+    "react": "https://aistudiocdn.com/react@^19.2.0",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/"
+  }
+}
+</script>
+  <link rel="stylesheet" href="/index.css">
+</head>
+
+<body>
+  <div class="stains"></div>
+  <div class="scanlines"></div>
+  <div id="root"></div>
+  <script type="module" src="/index.tsx"></script>
+</body>
+
+</html>

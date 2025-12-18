@@ -1,0 +1,7 @@
+{
+  "name": "Web Video Finder",
+  "description": "An application to search for and stream videos from major web platforms. This tool uses a search-based approach to scrape public results and extracts direct video links for a seamless playback experience.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
