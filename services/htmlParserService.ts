@@ -242,7 +242,7 @@ export const extractVideoResultsFromHtml = async (
         }
     });
 
-    console.log(`[htmlParser] Extracted ${unique.size} valid videos for ${providerName}`);
+
     console.log(`[htmlParser] Extracted ${unique.size} valid videos for ${providerName}`);
     return Array.from(unique.values());
 };

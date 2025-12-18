@@ -46,7 +46,7 @@ interface TagProps {
   onSelect: (tag: string) => void;
 }
 
-const COMMON_TAGS = ['BBW', 'PAWG', 'BIG TITS', 'ASIAN', 'LATINA', 'MILF', 'BLONDE', 'EBONY', 'ANAL', 'CREAMPIE', 'SQUIRT', 'LESBIAN', "BBW MILF", "3D PORN", "MERU THE DEMON", "BBW ASIAN", 'BBW LATINA', 'BBW RUSSIAN', "BBW PAWG", "PAWG"];
+const COMMON_TAGS = ['BBW', 'PAWG', 'BIG TITS', 'ASIAN', 'LATINA', 'MILF', 'BLONDE', 'EBONY', 'ANAL', 'CREAMPIE', 'SQUIRT', 'LESBIAN', "BBW MILF", "3D PORN", "MERU THE DEMON", "BBW ASIAN", 'BBW LATINA', 'BBW RUSSIAN', "BBW PAWG"];
 
 export const TagSuggestions: React.FC<TagProps> = ({ onSelect }) => {
   return (
