@@ -5,10 +5,12 @@ import { LoadingSpinnerIcon, PlayIcon } from './icons';
 interface SearchFormProps {
   onSearch: (query: string) => void;
   isLoading: boolean;
+  placeholder?: string;
+  initialValue?: string;
 }
 
-export const SearchForm: React.FC<SearchFormProps> = ({ onSearch, isLoading }) => {
-  const [query, setQuery] = useState('');
+export const SearchForm: React.FC<SearchFormProps> = ({ onSearch, isLoading, placeholder = "ENTER KEYWORDS...", initialValue = "" }) => {
+  const [query, setQuery] = useState(initialValue);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -24,7 +26,7 @@ export const SearchForm: React.FC<SearchFormProps> = ({ onSearch, isLoading }) =
           type="text"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="ENTER KEYWORDS..."
+          placeholder={placeholder}
           disabled={isLoading}
           className="w-full block px-4 py-3 bg-black border border-r-0 border-white/40 text-white placeholder-gray-600 focus:ring-0 focus:border-white text-lg transition-all font-mono tracking-wide uppercase rounded-none"
         />

@@ -90,26 +90,35 @@ const xvideosParser: SiteParser = {
         // Pattern: <a href="/video.{eid}/{title}"> with nested <img data-src="...">
 
         // Extract all video blocks - they have pattern: id="video_..." data-id="..." data-eid="..."
-        const videoBlockPattern = /<div id="video_[a-z0-9]+" data-id="(\d+)" data-eid="([a-z0-9]+)"[^>]*>[\s\S]*?<\/script><\/div>/gi;
+        // Extract all video blocks using a lookahead pattern to capture full content until next video or end
+        // matches <div id="video_ID" ...> CONTENT (?= <div id="video_...|$)
+        const videoBlockPattern = /<div[^>]+id="video_([a-zA-Z0-9]+)"[^>]*>([\s\S]*?)(?=<div[^>]+id="video_|$)/gi;
 
         let blockMatch;
         while ((blockMatch = videoBlockPattern.exec(html)) !== null) {
             const block = blockMatch[0];
+            const videoId = blockMatch[1];
 
-            // Extract href="/video.{eid}/{title}"
-            const hrefMatch = /href="(\/video\.[a-z0-9]+\/[^"]+)"/.exec(block);
+            // Extract href using flexible quote matching
+            const hrefMatch = /href=["'](\/video\.[a-zA-Z0-9]+\/[^"']+)["']/.exec(block);
             if (!hrefMatch) continue;
             const path = hrefMatch[1];
 
-            // Extract title from the title attribute in <a> tag or <p class="title">
-            const titleMatch = /title="([^"]+)"/.exec(block);
+            // Extract title - flexible quotes
+            const titleMatch = /title=["']([^"']+)["']/.exec(block);
             if (!titleMatch) continue;
             const title = titleMatch[1];
 
-            // Extract thumbnail - look for data-src attribute
-            const thumbMatch = /data-src="([^"]+\.jpg)"/.exec(block);
-            if (!thumbMatch) continue;
-            const thumb = thumbMatch[1];
+            // Extract thumbnail - prioritize data-src for lazy loaded images
+            let thumb = '';
+            const dataSrcMatch = /data-src=["']([^"']+)["']/.exec(block);
+            if (dataSrcMatch) {
+                thumb = dataSrcMatch[1];
+            } else {
+                const srcMatch = /src=["']([^"']+)["']/.exec(block);
+                if (srcMatch) thumb = srcMatch[1];
+            }
+            if (!thumb) continue;
 
             results.push({
                 title: decodeHtmlEntities(title),
@@ -117,6 +126,41 @@ const xvideosParser: SiteParser = {
                 thumbnailUrl: resolveUrl(baseUrl, thumb),
                 source: 'xvideos'
             });
+        }
+
+        return results;
+    }
+};
+
+const brazzParser: SiteParser = {
+    name: 'Brazz',
+    domains: ['brazz.org'],
+    parse: (html: string, baseUrl: string): VideoResult[] => {
+        const results: VideoResult[] = [];
+
+        // Brazz.org uses a[title][href*="/video/"] structure
+        // Each video link contains title attribute and nested img/spans for metadata
+        // Updated regex to handle both relative and absolute URLs
+        const videoRegex = /<a[^>]+href="((?:https?:\/\/[^\/]+)?\/video\/[^"]+)"[^>]+title="([^"]+)"[^>]*>([\s\S]*?)<\/a>/g;
+
+        let match;
+        while ((match = videoRegex.exec(html)) !== null) {
+            const path = match[1];
+            const title = match[2];
+            const content = match[3];
+
+            // Extract thumbnail from img tag
+            const thumbMatch = /<img[^>]+src="([^"]+)"/.exec(content);
+            const thumb = thumbMatch ? thumbMatch[1] : '';
+
+            if (title && path) {
+                results.push({
+                    title: decodeHtmlEntities(title),
+                    pageUrl: resolveUrl(baseUrl, path),
+                    thumbnailUrl: thumb ? resolveUrl(baseUrl, thumb) : '',
+                    source: 'brazz'
+                });
+            }
         }
 
         return results;
@@ -214,6 +258,8 @@ export const extractVideoResultsFromHtml = async (
         results.push(...pornhubParser.parse(html, baseUrl));
     } else if (baseUrl.includes('xvideos')) {
         results.push(...xvideosParser.parse(html, baseUrl));
+    } else if (baseUrl.includes('brazz')) {
+        results.push(...brazzParser.parse(html, baseUrl));
     }
 
     // 2. If specific parser failed or returned few results, try Generic Strategies
@@ -260,20 +306,28 @@ export const extractPornstarResultsFromHtml = async (
 
     // 1. Specific Parsers
     if (baseUrl.includes('pornhub')) {
-        // Pornhub Pornstars
-        // Structure: <li ...> <div class="wrap"> <a href="/pornstar/name"> ... <img src="..."> ... <div class="title">Name</div>
-        const itemRegex = /<li[^>]+class="[^"]*pornstar-li[^"]*"[^>]*>([\s\S]*?)<\/li>/g;
+        // Pornhub Pornstars - Actual structure from browser:
+        // <li data-value="Name" class="alpha"><a href="/pornstar/slug"><img ...>Name</a></li>
+        const itemRegex = /<li[^>]*>([\s\S]*?)<a[^>]+href="(\/pornstar\/[^"]+)"[^>]*>([\s\S]*?)<\/a>/g;
         let match;
         while ((match = itemRegex.exec(html)) !== null) {
-            const block = match[1];
-            const nameMatch = /<div[^>]+class="title"[^>]*>\s*<a[^>]+>([^<]+)<\/a>/i.exec(block);
-            const linkMatch = /href="(\/pornstar\/[^"]+)"/i.exec(block);
-            const imgMatch = /data-thumb_url="([^"]+)"/i.exec(block) || /src="([^"]+)"/i.exec(block);
+            const linkPath = match[2];
+            const content = match[3];
 
-            if (nameMatch && linkMatch) {
+            // Extract name - it's the text content after the img tag
+            // Pattern: <img ...> Name  OR  data-value="Name" in parent li
+            const textMatch = />\s*([^<]+)\s*$/.exec(content);
+            const dataValueMatch = /data-value="([^"]+)"/.exec(match[1]);
+
+            const name = textMatch ? textMatch[1].trim() : (dataValueMatch ? dataValueMatch[1].trim() : null);
+
+            // Extract image
+            const imgMatch = /src="([^"]+)"/i.exec(content) || /data-src="([^"]+)"/i.exec(content);
+
+            if (name && linkPath) {
                 results.push({
-                    name: nameMatch[1].trim(),
-                    pageUrl: resolveUrl(baseUrl, linkMatch[1]),
+                    name: decodeHtmlEntities(name),
+                    pageUrl: resolveUrl(baseUrl, linkPath),
                     thumbnailUrl: imgMatch ? resolveUrl(baseUrl, imgMatch[1]) : '',
                     source: 'pornhub'
                 });
@@ -282,52 +336,74 @@ export const extractPornstarResultsFromHtml = async (
 
     } else if (baseUrl.includes('xvideos')) {
         // XVideos Pornstars
-        // Structure: <div class="profile-placeholder"> <a href="/channels/name"> <img src="..."> </a> <p class="profile-name"> ...
-        // OR <div class="pornstar-model"> ...
+        // Structure: <div class="thumb-block thumb-block-profile "><div class="thumb-inside">...
+        const blockRegex = /<div[^>]+class="[^"]*thumb-block-profile[^"]*"[^>]*>([\s\S]*?)<\/div>\s*<\/div>/g;
+        let match;
+        const seen = new Set<string>();
 
-        // Strategy: Look for profile links with images inside common wrappers
-        // XVideos models path: /pornstar-channels/name or /pornstars/name or /model/name?
-        // Let's use a broader regex for XV items
-        const blockRegex = /<div[^>]+class="[^"]*thumb-block[^"]*"[^>]*>([\s\S]*?)<\/div>/g;
-        // Actually XV uses standard thumb blocks often, but for pornstars page specifically?
-        // Let's try to target the specific list items if possible, or fall back to generic.
+        while ((match = blockRegex.exec(html)) !== null) {
+            const content = match[1];
 
-        // "Best" fallback for XV pornstars page:
-        // Pattern: <p class="profile-name"><a href="/model/name">Name</a></p>
-        const nameRegex = /<p[^>]+class="profile-name"[^>]*>\s*<a[^>]+href="([^"]+)"[^>]*>([^<]+)<\/a>/g;
-        let pMatch;
-        while ((pMatch = nameRegex.exec(html)) !== null) {
-            const path = pMatch[1];
-            const name = pMatch[2];
-            // Try to find image preceding it? This is hard with regex stream.
-            // Let's use a reliable generic image finder nearby if we can, or just empty thumb (search will fill it later?? No, better to have it).
+            // Link and Name
+            const nameMatch = /<p[^>]*class="profile-name"[^>]*>[\s\S]*?<a[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/.exec(content);
+            if (!nameMatch) continue;
 
-            // Simpler strategy: Find the wrapper.
-            // <div class="item"> ... <img src="..."> ... <p class="profile-name"> ... </div>
-            results.push({
-                name: decodeHtmlEntities(name),
-                pageUrl: resolveUrl(baseUrl, path),
-                thumbnailUrl: '', // Hard to grab reliably without block context, let's see if generic catches it
-                source: 'xvideos'
-            });
+            const path = nameMatch[1];
+            const name = nameMatch[2].replace(/<strong>[^<]*<\/strong>/g, '').replace(/&nbsp;/g, ' ').trim();
+
+            if (seen.has(path)) continue;
+
+            // Thumbnail - often inside a script document.write
+            const imgMatch = /<img[^>]+src="([^"]+)"/.exec(content) ||
+                /replaceThumbUrl\('([^']+)'/.exec(content) ||
+                /src="([^"]+)"/.exec(content);
+
+            let thumb = '';
+            if (imgMatch) {
+                if (imgMatch[0].includes('replaceThumbUrl')) {
+                    const srcInString = /src="([^"]+)"/.exec(imgMatch[1]);
+                    thumb = srcInString ? srcInString[1] : '';
+                } else {
+                    thumb = imgMatch[1];
+                }
+            }
+
+            if (name && path) {
+                seen.add(path);
+                results.push({
+                    name: decodeHtmlEntities(name),
+                    pageUrl: resolveUrl(baseUrl, path),
+                    thumbnailUrl: thumb ? resolveUrl(baseUrl, thumb) : '',
+                    source: 'xvideos'
+                });
+            }
         }
+
     } else if (baseUrl.includes('brazz')) {
         // Brazz Pornstars
-        // <div class="model-card"> <a href="..."> <img ...> </a> ... </div>
-        const cardRegex = /<div[^>]+class="model-card"[^>]*>([\s\S]*?)<\/div>/g;
+        // Structure: <article class="thumb-block"> <a href="..." title="Name"> <img data-src="..."> ...
+        const articleRegex = /<article[^>]+class="[^"]*thumb-block[^"]*"[^>]*>([\s\S]*?)<\/article>/g;
         let match;
-        while ((match = cardRegex.exec(html)) !== null) {
-            const block = match[1];
-            const imgMatch = /src="([^"]+)"/i.exec(block);
-            const linkMatch = /href="([^"]+)"/i.exec(block);
-            // Name often in title tag of link or alt of img
-            const nameMatch = /title="([^"]+)"/i.exec(block) || /alt="([^"]+)"/i.exec(block);
 
-            if (linkMatch && nameMatch) {
+        while ((match = articleRegex.exec(html)) !== null) {
+            const content = match[1];
+
+            // Link and Title
+            const linkMatch = /<a[^>]+href="([^"]+)"[^>]+title="([^"]+)"/.exec(content);
+            if (!linkMatch) continue;
+
+            const path = linkMatch[1];
+            const name = linkMatch[2];
+
+            // Thumbnail - Brazz uses data-src for Lazy Load
+            const imgMatch = /<img[^>]+data-src="([^"]+)"/.exec(content) || /<img[^>]+src="([^"]+)"/.exec(content);
+            const thumb = imgMatch ? imgMatch[1] : '';
+
+            if (name && path) {
                 results.push({
-                    name: decodeHtmlEntities(nameMatch[1]),
-                    pageUrl: resolveUrl(baseUrl, linkMatch[1]),
-                    thumbnailUrl: imgMatch ? resolveUrl(baseUrl, imgMatch[1]) : '',
+                    name: decodeHtmlEntities(name),
+                    pageUrl: resolveUrl(baseUrl, path),
+                    thumbnailUrl: thumb ? resolveUrl(baseUrl, thumb) : '',
                     source: 'brazz'
                 });
             }
@@ -351,7 +427,7 @@ export const extractPornstarResultsFromHtml = async (
         }
     });
 
-
+    console.log(`[htmlParser] Extracted ${unique.size} valid pornstars for ${providerName}`);
     return Array.from(unique.values());
 };
 

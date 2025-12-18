@@ -183,6 +183,7 @@ interface ProviderConfig {
     name: string;
     baseUrl: string;
     searchPath: string; // e.g., '/search?q=' or '/s/'
+    pornstarSearchPath?: string;
     trendingPath?: string;
     pornstarPath?: string;
 }
@@ -195,35 +196,53 @@ const PROVIDER_CONFIG: ProviderConfig[] = [
         name: 'PornHub',
         baseUrl: 'https://www.pornhub.com',
         searchPath: '/video/search?search=',
+        pornstarSearchPath: '/pornstars/search?search=',
         trendingPath: '/video?o=ht', // Hot/Trending
-        pornstarPath: '/pornstars'
+        pornstarPath: '/pornstars?o=t' // Trending pornstars
     },
     {
         key: 'xvideos',
         name: 'XVideos',
         baseUrl: 'https://www.xvideos.com',
         searchPath: '/?k=',
+        pornstarSearchPath: '/pornstars-index/?k=',
         trendingPath: '/best', // Best/Trending
-        pornstarPath: '/pornstars'
+        pornstarPath: '/pornstars-index' // Top 100 pornstars
     },
     {
         key: 'brazz',
         name: 'Brazz',
         baseUrl: 'https://brazz.org',
         searchPath: '/search/',
-        trendingPath: '/', // Homepage usually has latest/trending
-        pornstarPath: '/pornstars/' // Guessed, will verify
+        // Brazz doesn't have a clear searchable pornstar index, so we omit pornstarSearchPath to fallback or skip
+        trendingPath: '/videos/sortby/beingwatched/', // "Being watched" is the trending equivalent
+        pornstarPath: '/pornstars/sortby/views/' // Most viewed pornstars
     },
 ];
 
-
-const genericSearchProvider = async (config: ProviderConfig, q: string): Promise<VideoResult[]> => {
+const genericSearchProvider = async (config: ProviderConfig, q: string, page: number = 1): Promise<VideoResult[]> => {
     // If no baseUrl is configured (like for generic direct links), we can't search.
     if (!config.baseUrl) {
         return [];
     }
-    const url = `${config.baseUrl}${config.searchPath}${encodeURIComponent(q)}`;
-    console.log(`[videoService:${config.name}] Searching with HTML parser for: "${q}"`);
+
+    let url = `${config.baseUrl}${config.searchPath}${encodeURIComponent(q)}`;
+
+    // Pagination Logic
+    if (page > 1) {
+        if (config.key === 'pornhub') {
+            url += `&page=${page}`;
+        } else if (config.key === 'xvideos') {
+            url += `&p=${page}`;
+        } else if (config.key === 'brazz') {
+            // Brazz: /search/query/page/2/
+            // Note: Current searchPath is '/search/', so url is already /search/query.
+            // We need to inject /page/2/
+            url = `${config.baseUrl}${config.searchPath}${encodeURIComponent(q)}/page/${page}/`;
+        }
+    }
+
+    console.log(`[videoService:${config.name}] Searching page ${page} with HTML parser for: "${q}"`);
     const html = await fetchSource(url);
     // Pass config.key to force specific parser if available
     const results = await extractVideoResultsFromHtml(html, config.name, config.baseUrl, config.key);
@@ -292,21 +311,32 @@ const genericGetStream = async (pageUrl: string): Promise<string> => {
 // --- Master Exported Functions ---
 
 type Provider = {
-    search: (q: string) => Promise<VideoResult[]>;
+    search: (q: string, page?: number) => Promise<VideoResult[]>;
     stream: (pageUrl: string) => Promise<string>;
-    getTrending: () => Promise<VideoResult[]>;
-    getPornstars: () => Promise<PornstarResult[]>;
+    getTrending: (page?: number) => Promise<VideoResult[]>;
+    getPornstars: (page?: number) => Promise<PornstarResult[]>;
+    searchPornstars?: (q: string, page?: number) => Promise<PornstarResult[]>;
     name: string;
 };
 
-// Placeholder for new parser functions (will be implemented in htmlParserService and imported)
-
-
-const genericGetTrending = async (config: ProviderConfig): Promise<VideoResult[]> => {
+const genericGetTrending = async (config: ProviderConfig, page: number = 1): Promise<VideoResult[]> => {
     if (!config.baseUrl || !config.trendingPath) return [];
 
-    const url = `${config.baseUrl}${config.trendingPath}`;
-    console.log(`[videoService:${config.name}] Fetching Trending: ${url}`);
+    let url = `${config.baseUrl}${config.trendingPath}`;
+
+    // Pagination
+    if (page > 1) {
+        if (config.key === 'pornhub') {
+            url += `&page=${page}`;
+        } else if (config.key === 'xvideos') {
+            // Remove trailing slash if checks
+            url = `${config.baseUrl}/best/${page}`;
+        } else if (config.key === 'brazz') {
+            url = `${config.baseUrl}${config.trendingPath}page/${page}/`;
+        }
+    }
+
+    console.log(`[videoService:${config.name}] Fetching Trending Page ${page}: ${url}`);
     try {
         const html = await fetchSource(url);
         // Reuse video extraction logic, it works for lists usually
@@ -317,11 +347,24 @@ const genericGetTrending = async (config: ProviderConfig): Promise<VideoResult[]
     }
 };
 
-const genericGetPornstars = async (config: ProviderConfig): Promise<PornstarResult[]> => {
+const genericGetPornstars = async (config: ProviderConfig, page: number = 1): Promise<PornstarResult[]> => {
     if (!config.baseUrl || !config.pornstarPath) return [];
 
-    const url = `${config.baseUrl}${config.pornstarPath}`;
-    console.log(`[videoService:${config.name}] Fetching Pornstars: ${url}`);
+    let url = `${config.baseUrl}${config.pornstarPath}`;
+
+    // Pagination
+    if (page > 1) {
+        if (config.key === 'pornhub') {
+            url += `&page=${page}`;
+        } else if (config.key === 'xvideos') {
+            const xvPage = page - 1;
+            url = `${config.baseUrl}/pornstars-index/${xvPage}`;
+        } else if (config.key === 'brazz') {
+            url = `${config.baseUrl}${config.pornstarPath}page/${page}/`;
+        }
+    }
+
+    console.log(`[videoService:${config.name}] Fetching Pornstars Page ${page}: ${url}`);
     try {
         const html = await fetchSource(url);
         return await extractPornstarResultsFromHtml(html, config.name, config.baseUrl, config.key);
@@ -330,13 +373,46 @@ const genericGetPornstars = async (config: ProviderConfig): Promise<PornstarResu
         return [];
     }
 }
+
+const genericSearchPornstars = async (config: ProviderConfig, q: string, page: number = 1): Promise<PornstarResult[]> => {
+    if (!config.baseUrl || !config.pornstarSearchPath) {
+        console.warn(`[videoService] No pornstar search path for ${config.name}`);
+        return [];
+    }
+
+    // Basic URL construction
+    let url = `${config.baseUrl}${config.pornstarSearchPath}${encodeURIComponent(q)}`;
+
+    // Pagination for Search
+    if (page > 1) {
+        if (config.key === 'pornhub') {
+            url += `&page=${page}`;
+        } else if (config.key === 'xvideos') {
+            // XVideos structure: /pornstars-index/?k=query&p=Number
+            url += `&p=${page - 1}`;
+        }
+        // Brazz doesn't support specific pornstar search via this method likely
+    }
+
+    console.log(`[videoService:${config.name}] Searching Pornstars "${q}" Page ${page}: ${url}`);
+    try {
+        const html = await fetchSource(url);
+        // Use the existing pornstar extractor as result lists are likely similar
+        return await extractPornstarResultsFromHtml(html, config.name, config.baseUrl, config.key);
+    } catch (e) {
+        console.error(`[videoService] Pornstar search failed for ${config.name}`, e);
+        return [];
+    }
+}
+
 // Dynamically build the PROVIDERS object from the configuration
 export const PROVIDERS = PROVIDER_CONFIG.reduce((acc, config) => {
     acc[config.key] = {
-        search: (q: string) => genericSearchProvider(config, q),
+        search: (q: string, page: number = 1) => genericSearchProvider(config, q, page),
         stream: genericGetStream,
-        getTrending: () => genericGetTrending(config),
-        getPornstars: () => genericGetPornstars(config),
+        getTrending: (page: number = 1) => genericGetTrending(config, page),
+        getPornstars: (page: number = 1) => genericGetPornstars(config, page),
+        searchPornstars: (q: string, page: number = 1) => genericSearchPornstars(config, q, page),
         name: config.name,
     };
     return acc;
@@ -344,7 +420,51 @@ export const PROVIDERS = PROVIDER_CONFIG.reduce((acc, config) => {
 
 export const PROVIDER_KEYS = Object.keys(PROVIDERS) as ProviderKey[];
 
-export const searchVideos = async (query: string, providers: ProviderKey[]): Promise<VideoResult[]> => {
+export const searchPornstars = async (query: string, providers: ProviderKey[], page: number = 1): Promise<PornstarResult[]> => {
+    if (providers.length === 0) return [];
+
+    // Filter generic
+    const validProviders = providers.filter(p => PROVIDERS[p].name !== 'Direct Link');
+
+    console.log(`[videoService] Searching Pornstars in [${validProviders.join(', ')}] for "${query}"`);
+
+    const searchPromises = validProviders.map(key =>
+        PROVIDERS[key].searchPornstars ? PROVIDERS[key].searchPornstars!(query, page).catch(e => []) : Promise.resolve([])
+    );
+
+    const results = await Promise.all(searchPromises);
+    const flatResults = results.flat();
+
+    // Sort by relevance to query
+    const lowerQuery = query.toLowerCase().trim();
+    return flatResults.sort((a, b) => {
+        const nameA = a.name.toLowerCase();
+        const nameB = b.name.toLowerCase();
+
+        // Exact match check
+        const exactA = nameA === lowerQuery;
+        const exactB = nameB === lowerQuery;
+        if (exactA && !exactB) return -1;
+        if (!exactA && exactB) return 1;
+
+        // Starts with match check
+        const startsA = nameA.startsWith(lowerQuery);
+        const startsB = nameB.startsWith(lowerQuery);
+        if (startsA && !startsB) return -1;
+        if (!startsA && startsB) return 1;
+
+        // Contains match check
+        const containsA = nameA.includes(lowerQuery);
+        const containsB = nameB.includes(lowerQuery);
+        if (containsA && !containsB) return -1;
+        if (!containsA && containsB) return 1;
+
+        // Alphabetical as fallback
+        return nameA.localeCompare(nameB);
+    });
+};
+
+export const searchVideos = async (query: string, providers: ProviderKey[], page: number = 1): Promise<VideoResult[]> => {
     if (providers.length === 0) {
         console.warn("Search initiated with no providers selected.");
         return [];
@@ -353,14 +473,12 @@ export const searchVideos = async (query: string, providers: ProviderKey[]): Pro
     // Filter out 'generic' from search providers as it has no search capability
     const validProviders = providers.filter(p => PROVIDERS[p].name !== 'Direct Link');
 
-    // removed the random subset limit!
-    // We launch all requests parallel (capped by browser usually, but let's hope it handles 20 requests OK)
     const selectedProviders = validProviders;
 
-    console.log(`Searching providers [${selectedProviders.length}] for "${query}"`);
+    console.log(`Searching providers [${selectedProviders.length}] for "${query}" (Page ${page})`);
 
     const searchPromises = selectedProviders.map(key =>
-        PROVIDERS[key].search(query).catch(err => {
+        PROVIDERS[key].search(query, page).catch(err => {
             console.error(`Search failed for provider ${key}:`, err);
             return [];
         })
@@ -419,12 +537,84 @@ export const getProviderKeyFromUrl = (url: string): ProviderKey => {
     return 'generic'; // Fallback to generic direct link handler
 };
 
-export const getTrendingVideos = async (providerKey: ProviderKey): Promise<VideoResult[]> => {
+export const getTrendingVideos = async (providerKey: ProviderKey, page: number = 1): Promise<VideoResult[]> => {
     if (!PROVIDERS[providerKey]?.getTrending) return [];
-    return PROVIDERS[providerKey].getTrending();
+    return PROVIDERS[providerKey].getTrending(page);
 };
 
-export const getTrendingPornstars = async (providerKey: ProviderKey): Promise<PornstarResult[]> => {
+export const getTrendingPornstars = async (providerKey: ProviderKey, page: number = 1): Promise<PornstarResult[]> => {
     if (!PROVIDERS[providerKey]?.getPornstars) return [];
-    return PROVIDERS[providerKey].getPornstars();
+    return PROVIDERS[providerKey].getPornstars(page);
+};
+
+export const getActorVideos = async (actor: PornstarResult, page: number = 1): Promise<VideoResult[]> => {
+    console.log(`[videoService:getActorVideos] Fetching videos for ${actor.name} from ${actor.source}, page ${page}`);
+
+    // XVideos uses a JSON API for pagination
+    if (actor.source === 'xvideos') {
+        try {
+            // Extract actor name from pageUrl (e.g., "violet-myers" from "https://www.xvideos.com/pornstars/violet-myers")
+            const actorName = actor.pageUrl.split('/').pop() || actor.name.toLowerCase().replace(/\s+/g, '-');
+            // XVideos uses 0-based page indexing (page 1 = index 0)
+            const pageIndex = page - 1;
+            const apiUrl = `https://www.xvideos.com/pornstars/${actorName}/videos/best/straight/${pageIndex}`;
+
+            console.log(`[videoService:getActorVideos] Fetching XVideos JSON API: ${apiUrl}`);
+            const response = await fetch(`/proxy?url=${encodeURIComponent(apiUrl)}`);
+
+            if (!response.ok) {
+                throw new Error(`API request failed: ${response.status}`);
+            }
+
+            const data = await response.json();
+            console.log(`[videoService:getActorVideos] XVideos API returned ${data.videos?.length || 0} videos (total: ${data.nb_videos}, page: ${data.current_page})`);
+
+            // Convert JSON video objects to VideoResult format
+            const videos: VideoResult[] = (data.videos || []).map((v: any) => ({
+                title: v.t || '',
+                // CRITICAL FIX: Prefer 'v.eid' to construct standard URL. 'v.u' often contains redirected 'prof-video-click' URLs which break embed extraction.
+                pageUrl: v.eid ? `https://www.xvideos.com/video${v.eid}/${v.t?.toLowerCase().replace(/[^a-z0-9]+/g, '_')}` : `https://www.xvideos.com${v.u}`,
+                thumbnailUrl: v.i || '',
+                source: 'xvideos' as ProviderKey
+            }));
+
+            return videos;
+        } catch (e) {
+            console.error(`[videoService:getActorVideos] XVideos API failed, falling back to HTML:`, e);
+            // Fall through to HTML parsing as fallback
+        }
+    }
+
+    // For Pornhub, Brazz, or as fallback: fetch HTML and parse
+    let pageUrl = actor.pageUrl;
+
+    // Construct pagination URL based on provider
+    if (page > 1) {
+        if (actor.source === 'pornhub') {
+            // Pornhub: https://www.pornhub.com/pornstar/name/videos?page=2
+            // Ensure we are hitting the /videos endpoint
+            const baseUrl = actor.pageUrl.includes('/videos') ? actor.pageUrl : `${actor.pageUrl}/videos`;
+            pageUrl = `${baseUrl}?page=${page}`;
+        } else if (actor.source === 'brazz') {
+            // Brazz: https://brazz.org/videos/models/ID/name/page/2/
+            // Ensure trailing slash on base then append page/N/
+            const baseUrl = actor.pageUrl.endsWith('/') ? actor.pageUrl : `${actor.pageUrl}/`;
+            pageUrl = `${baseUrl}page/${page}/`;
+        }
+    }
+
+    console.log(`[videoService:getActorVideos] Fetching channel page: ${pageUrl}`);
+
+    try {
+        const html = await fetchSource(pageUrl);
+        const config = PROVIDER_CONFIG.find(c => c.key === actor.source);
+        if (!config) return [];
+
+        const videos = await extractVideoResultsFromHtml(html, config.name, config.baseUrl, actor.source);
+        console.log(`[videoService:getActorVideos] Found ${videos.length} videos from channel`);
+        return videos;
+    } catch (e) {
+        console.error(`[videoService:getActorVideos] Failed to fetch channel videos for ${actor.name}`, e);
+        return [];
+    }
 };

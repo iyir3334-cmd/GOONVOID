@@ -5,7 +5,7 @@ import { VideoPlayer } from './components/VideoPlayer';
 import { VideoList } from './components/VideoList';
 import { ActionModal } from './components/ActionModal';
 import { VerticalFeed } from './components/VerticalFeed'; // Import new feed component
-import { getVideoStreamUrl, searchVideos, VideoResult, PROVIDER_KEYS, getProviderKeyFromUrl, PROVIDERS, ProviderKey, fetchMetadata, getTrendingVideos, getTrendingPornstars, PornstarResult } from './services/videoService';
+import { getVideoStreamUrl, searchVideos, VideoResult, PROVIDER_KEYS, getProviderKeyFromUrl, PROVIDERS, ProviderKey, fetchMetadata, getTrendingVideos, getTrendingPornstars, PornstarResult, getActorVideos, searchPornstars } from './services/videoService';
 import { InfoIcon, HistoryIcon, FilterIcon, StarIcon, PlayIcon, DownloadIcon, UploadIcon, TrashIcon, LoadingSpinnerIcon, MobileIcon, TrendingIcon } from './components/icons';
 import { saveToHistory, getHistory, clearHistory, getFavoriteProviders, saveFavoriteProvider, removeFavoriteProvider } from './services/storageService';
 import { HypnoOverlay } from './components/HypnoOverlay';
@@ -97,6 +97,26 @@ const App: React.FC = () => {
   const [trendingVideos, setTrendingVideos] = useState<VideoResult[]>([]);
   const [trendingPornstars, setTrendingPornstars] = useState<PornstarResult[]>([]);
   const [isTrendingLoading, setIsTrendingLoading] = useState(false);
+
+  // Actor Channel State
+  const [selectedActor, setSelectedActor] = useState<PornstarResult | null>(null);
+  const [channelVideos, setChannelVideos] = useState<VideoResult[]>([]);
+  const [isChannelLoading, setIsChannelLoading] = useState(false);
+  const [channelCurrentPage, setChannelCurrentPage] = useState(1);
+  const [channelHasMore, setChannelHasMore] = useState(true);
+
+  // Pagination State
+  const [currentQuery, setCurrentQuery] = useState("");
+  const [searchPage, setSearchPage] = useState(1);
+  const [searchHasMore, setSearchHasMore] = useState(true);
+
+  const [trendingVideosPage, setTrendingVideosPage] = useState(1);
+  const [trendingVideosHasMore, setTrendingVideosHasMore] = useState(true);
+
+  const [trendingPornstarsPage, setTrendingPornstarsPage] = useState(1);
+  const [trendingPornstarsHasMore, setTrendingPornstarsHasMore] = useState(true);
+  const [pornstarSearchQuery, setPornstarSearchQuery] = useState("");
+
   // Load history and favorites on mount
   useEffect(() => {
     setHistory(getHistory());
@@ -221,15 +241,19 @@ const App: React.FC = () => {
     setCurrentVideo(null);
     setVideoStreamUrl(null);
     setVideoResults([]);
+    setCurrentQuery(query);
+    setSearchPage(1);
+    setSearchHasMore(true);
 
     try {
       if (selectedProviders.length === 0) {
         throw new Error("No providers selected. Please select at least one provider in the Providers or Favorites tab.");
       }
 
-      const results = await searchVideos(query, selectedProviders);
+      const results = await searchVideos(query, selectedProviders, 1);
       console.log(`[performSearch] Found ${results.length} results for "${query}".`);
       setVideoResults(results);
+      if (results.length < 10) setSearchHasMore(false); // Assumption: if few results, no more pages
       if (results.length === 0) {
         setInfo(`No results found for "${query}". Try another search or enable more providers.`);
       } else {
@@ -243,6 +267,30 @@ const App: React.FC = () => {
       setIsLoading(false);
     }
   }, [selectedProviders]);
+
+  const handleLoadMoreResults = async () => {
+    if (isLoading || !searchHasMore || !currentQuery) return;
+
+    const nextPage = searchPage + 1;
+    setIsLoading(true); // Don't wipe results, just show loading state if needed (or minimal spinner)
+
+    try {
+      console.log(`[handleLoadMoreResults] Loading page ${nextPage} for "${currentQuery}"`);
+      const results = await searchVideos(currentQuery, selectedProviders, nextPage);
+
+      if (results.length > 0) {
+        setVideoResults(prev => [...prev, ...results]);
+        setSearchPage(nextPage);
+        if (results.length < 10) setSearchHasMore(false);
+      } else {
+        setSearchHasMore(false);
+      }
+    } catch (e) {
+      console.error("Failed to load more results", e);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   // Reset selected provider filter when a new search is performed
   useEffect(() => {
@@ -375,18 +423,32 @@ const App: React.FC = () => {
 
   const fetchTrending = async (type: 'videos' | 'pornstars', provider: ProviderKey) => {
     setIsTrendingLoading(true);
-    setTrendingVideos([]);
-    setTrendingPornstars([]);
+    // Note: We don't clear the list immediately if just switching subtabs sometimes, but here we do for cleanliness
+    if (type === 'videos') {
+      setTrendingVideos([]);
+      setTrendingVideosPage(1);
+      setTrendingVideosHasMore(true);
+    } else {
+      setTrendingPornstars([]);
+      setTrendingPornstarsPage(1);
+      setTrendingPornstars([]);
+      setTrendingPornstarsPage(1);
+      setTrendingPornstarsHasMore(true);
+      setPornstarSearchQuery(""); // Reset search on tab switch
+    }
+
     // Default to PH if generic passed (shouldn't happen with UI limits but safety first)
     const safeProvider = provider === 'generic' ? 'pornhub' : provider;
 
     try {
       if (type === 'videos') {
-        const vids = await getTrendingVideos(safeProvider);
+        const vids = await getTrendingVideos(safeProvider, 1);
         setTrendingVideos(vids);
+        if (vids.length < 20) setTrendingVideosHasMore(false);
       } else {
-        const stars = await getTrendingPornstars(safeProvider);
+        const stars = await getTrendingPornstars(safeProvider, 1);
         setTrendingPornstars(stars);
+        if (stars.length < 20) setTrendingPornstarsHasMore(false);
       }
     } catch (e) {
       console.error("Trending fetch error", e);
@@ -395,18 +457,136 @@ const App: React.FC = () => {
     }
   };
 
+  const handleLoadMoreTrendingVideos = async () => {
+    if (isTrendingLoading || !trendingVideosHasMore) return;
+
+    const nextPage = trendingVideosPage + 1;
+    // setIsTrendingLoading(true); // Optional: global loading obscures content. Maybe local loader?
+    // Let's rely on button state
+
+    try {
+      const vids = await getTrendingVideos(trendingProvider, nextPage);
+      if (vids.length > 0) {
+        setTrendingVideos(prev => [...prev, ...vids]);
+        setTrendingVideosPage(nextPage);
+        if (vids.length < 20) setTrendingVideosHasMore(false);
+      } else {
+        setTrendingVideosHasMore(false);
+      }
+    } catch (e) { console.error("Load more trending videos failed", e); }
+  };
+
+  const handleLoadMoreTrendingPornstars = async () => {
+    if (isTrendingLoading || !trendingPornstarsHasMore) return;
+
+    const nextPage = trendingPornstarsPage + 1;
+
+    try {
+      const stars = await getTrendingPornstars(trendingProvider, nextPage);
+      if (stars.length > 0) {
+        setTrendingPornstars(prev => [...prev, ...stars]);
+        setTrendingPornstarsPage(nextPage);
+        if (stars.length < 20) setTrendingPornstarsHasMore(false);
+      } else {
+        setTrendingPornstarsHasMore(false);
+      }
+    } catch (e) { console.error("Load more trending pornstars failed", e); }
+  };
+
+  const handlePornstarSearch = async (query: string) => {
+    setPornstarSearchQuery(query);
+    setTrendingPornstarsPage(1);
+    setTrendingPornstarsHasMore(true);
+
+    if (!query.trim()) {
+      // If empty, revert to trending
+      fetchTrending('pornstars', trendingProvider);
+      return;
+    }
+
+    setIsTrendingLoading(true);
+    setTrendingPornstars([]);
+    try {
+      const results = await searchPornstars(query, [trendingProvider], 1);
+      setTrendingPornstars(results);
+      if (results.length === 0) setTrendingPornstarsHasMore(false); // Assume no more if 0 found initially
+    } catch (e) {
+      console.error("Pornstar search failed", e);
+    } finally {
+      setIsTrendingLoading(false);
+    }
+  };
+
   // Effect to re-fetch if internal state changes while tab is active
   useEffect(() => {
     if (activeTab === 'trending') {
+      // Clear actor selection when switching sub-tabs or providers
+      setSelectedActor(null);
+      setChannelVideos([]);
       fetchTrending(trendingSubTab, trendingProvider);
     }
   }, [trendingSubTab, trendingProvider]); // Removed activeTab dependency to prevent loop, called manually on tab switch or handled here? 
   // Actually, better to just call it when state changes.
 
-  const handlePornstarClick = (star: PornstarResult) => {
-    // Switch to search and search for name
-    setActiveTab('search');
-    handleSearch(star.name);
+  const handlePornstarClick = async (star: PornstarResult) => {
+    console.log(`[handlePornstarClick] Loading videos for ${star.name} from ${star.source}`);
+    setIsChannelLoading(true);
+    setSelectedActor(star);
+    setChannelVideos([]);
+    setChannelCurrentPage(1);
+    setChannelHasMore(true);
+
+    try {
+      const videos = await getActorVideos(star, 1);
+      console.log(`[handlePornstarClick] Loaded ${videos.length} videos for ${star.name}`);
+      setChannelVideos(videos);
+      // XVideos returns 36 videos per page, so if we get less than 30, probably last page
+      if (videos.length < 30) {
+        setChannelHasMore(false);
+      }
+    } catch (e) {
+      console.error(`[handlePornstarClick] Failed to load videos for ${star.name}`, e);
+      setError(`Failed to load videos for ${star.name}`);
+    } finally {
+      setIsChannelLoading(false);
+    }
+  };
+
+  const handleLoadMoreChannelVideos = async () => {
+    if (!selectedActor || isChannelLoading || !channelHasMore) return;
+
+    console.log(`[handleLoadMoreChannelVideos] Loading page ${channelCurrentPage + 1} for ${selectedActor.name}`);
+    setIsChannelLoading(true);
+
+    try {
+      const nextPage = channelCurrentPage + 1;
+      const newVideos = await getActorVideos(selectedActor, nextPage);
+      console.log(`[handleLoadMoreChannelVideos] Loaded ${newVideos.length} new videos`);
+
+      if (newVideos.length > 0) {
+        setChannelVideos(prev => [...prev, ...newVideos]);
+        setChannelCurrentPage(nextPage);
+        // If less than 30 videos, assume last page
+        if (newVideos.length < 30) {
+          setChannelHasMore(false);
+        }
+      } else {
+        setChannelHasMore(false);
+      }
+    } catch (e) {
+      console.error(`[handleLoadMoreChannelVideos] Failed to load page ${channelCurrentPage + 1}`, e);
+      setError('Failed to load more videos');
+    } finally {
+      setIsChannelLoading(false);
+    }
+  };
+
+  const handleBackToActors = () => {
+    setSelectedActor(null);
+    setChannelVideos([]);
+    setChannelCurrentPage(1);
+    setChannelHasMore(true);
+    setError(null);
   };
   return (
     <div className="min-h-screen text-white flex flex-col items-center p-4 sm:p-6 lg:p-8 relative z-20">
@@ -643,8 +823,21 @@ const App: React.FC = () => {
                     : videoResults.filter(v => v.source === selectedResultProvider)
                   }
                   onVideoSelect={handleVideoSelectInteraction}
-                  isLoading={isLoading}
+                  isLoading={isLoading && searchPage === 1} // Only show skeleton on first page load
                 />
+
+                {/* Search Load More */}
+                {videoResults.length > 0 && searchHasMore && (
+                  <div className="flex justify-center mt-6">
+                    <button
+                      onClick={handleLoadMoreResults}
+                      disabled={isLoading}
+                      className="px-6 py-2 border border-gray-700 hover:border-white hover:bg-white/10 transition-all uppercase tracking-wide text-sm font-bold disabled:opacity-50"
+                    >
+                      {isLoading ? <LoadingSpinnerIcon /> : 'LOAD MORE RESULTS'}
+                    </button>
+                  </div>
+                )}
               </div>
             )}
 
@@ -691,7 +884,7 @@ const App: React.FC = () => {
 
                 {/* Content Area */}
                 <div className="min-h-[300px]">
-                  {isTrendingLoading ? (
+                  {isTrendingLoading && !trendingVideos.length && !trendingPornstars.length ? (
                     <div className="flex justify-center items-center h-48">
                       <LoadingSpinnerIcon />
                       <span className="ml-2 text-sm font-bold uppercase tracking-widest text-gray-400">Loading Trends...</span>
@@ -699,34 +892,168 @@ const App: React.FC = () => {
                   ) : (
                     <>
                       {trendingSubTab === 'videos' && (
-                        <VideoList
-                          videos={trendingVideos}
-                          onVideoSelect={handleVideoSelectInteraction}
-                          isLoading={false}
-                        />
+                        <>
+                          <VideoList
+                            videos={trendingVideos}
+                            onVideoSelect={handleVideoSelectInteraction}
+                            isLoading={false}
+                          />
+                          {/* Trending Videos Load More */}
+                          {trendingVideos.length > 0 && trendingVideosHasMore && (
+                            <div className="flex justify-center mt-6">
+                              <button
+                                onClick={handleLoadMoreTrendingVideos}
+                                className="px-6 py-2 border border-gray-700 hover:border-white hover:bg-white/10 transition-all uppercase tracking-wide text-sm font-bold"
+                              >
+                                LOAD MORE TRENDING
+                              </button>
+                            </div>
+                          )}
+                        </>
                       )}
 
                       {trendingSubTab === 'pornstars' && (
-                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-                          {trendingPornstars.map((star, idx) => (
-                            <div
-                              key={idx}
-                              onClick={() => handlePornstarClick(star)}
-                              className="group relative bg-gray-900 border border-gray-800 hover:border-white cursor-pointer transition-all aspect-[3/4] overflow-hidden"
-                            >
-                              {star.thumbnailUrl ? (
-                                <img src={star.thumbnailUrl} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500 opacity-80 group-hover:opacity-100" />
+                        <>
+                          {selectedActor ? (
+                            // Channel Videos View
+                            <div className="space-y-4">
+                              {/* Back Button and Header */}
+                              <div className="flex items-center gap-4 border-b border-gray-800 pb-4">
+                                <button
+                                  onClick={handleBackToActors}
+                                  className="flex items-center gap-2 px-4 py-2 border border-gray-700 hover:border-white hover:bg-white/10 transition-all uppercase tracking-wide text-sm font-bold"
+                                >
+                                  <span>←</span>
+                                  Back to Pornstars
+                                </button>
+                                <div className="flex-1">
+                                  <h2 className="text-2xl font-bold text-white uppercase tracking-wider">
+                                    {selectedActor.name}
+                                  </h2>
+                                  <p className="text-sm text-gray-400 uppercase tracking-widest">
+                                    {PROVIDERS[selectedActor.source].name} Channel
+                                  </p>
+                                </div>
+                                {selectedActor.thumbnailUrl && (
+                                  <img
+                                    src={selectedActor.thumbnailUrl}
+                                    className="w-20 h-20 object-cover border border-gray-700"
+                                    alt={selectedActor.name}
+                                  />
+                                )}
+                              </div>
+
+                              {/* Channel Videos */}
+                              {isChannelLoading && channelVideos.length === 0 ? (
+                                <div className="flex justify-center items-center h-48">
+                                  <LoadingSpinnerIcon />
+                                  <span className="ml-2 text-sm font-bold uppercase tracking-widest text-gray-400">
+                                    Loading Channel Videos...
+                                  </span>
+                                </div>
+                              ) : channelVideos.length > 0 ? (
+                                <>
+                                  <VideoList
+                                    videos={channelVideos}
+                                    onVideoSelect={handleVideoSelectInteraction}
+                                    isLoading={false}
+                                  />
+
+                                  {/* Pagination Controls */}
+                                  <div className="mt-6 flex flex-col items-center gap-4 border-t border-gray-800 pt-6">
+                                    <p className="text-sm text-gray-400 uppercase tracking-widest">
+                                      Showing {channelVideos.length} videos
+                                    </p>
+
+                                    {channelHasMore && (
+                                      <button
+                                        onClick={handleLoadMoreChannelVideos}
+                                        disabled={isChannelLoading}
+                                        className="px-6 py-3 border border-gray-700 hover:border-white hover:bg-white/10 transition-all uppercase tracking-wide text-sm font-bold disabled:opacity-50 disabled:cursor-not-allowed relative group"
+                                      >
+                                        {isChannelLoading ? (
+                                          <>
+                                            <span className="inline-block mr-2"><LoadingSpinnerIcon /></span>
+                                            Loading...
+                                          </>
+                                        ) : (
+                                          'Load More Videos'
+                                        )}
+                                        <span className="absolute left-1/2 transform -translate-x-1/2 top-full mt-2 px-3 py-1 bg-gray-900 border border-gray-700 text-xs whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                                          Page {channelCurrentPage + 1} (Feature in development)
+                                        </span>
+                                      </button>
+                                    )}
+
+                                    {!channelHasMore && channelVideos.length >= 8 && (
+                                      <p className="text-sm text-gray-500 italic">
+                                        No more videos available (Pagination URLs still being researched)
+                                      </p>
+                                    )}
+                                  </div>
+                                </>
                               ) : (
-                                <div className="w-full h-full flex items-center justify-center bg-gray-800 text-gray-600">
-                                  <StarIcon />
+                                <div className="text-center p-10 text-gray-500 border border-gray-800 bg-gray-900/10">
+                                  <p className="uppercase">No videos found for this actor.</p>
                                 </div>
                               )}
-                              <div className="absolute bottom-0 w-full p-2 bg-gradient-to-t from-black via-black/80 to-transparent">
-                                <h3 className="text-sm font-bold text-white text-center uppercase tracking-wider">{star.name}</h3>
-                              </div>
                             </div>
-                          ))}
-                        </div>
+                          ) : (
+                            // Pornstars Grid View
+                            <>
+                              {/* Pornstar Search Input */}
+                              <div className="flex justify-center mb-6">
+                                <SearchForm
+                                  onSearch={handlePornstarSearch}
+                                  isLoading={isTrendingLoading}
+                                  placeholder={`SEARCH ${PROVIDERS[trendingProvider].name} PORNSTARS...`}
+                                  initialValue={pornstarSearchQuery}
+                                />
+                              </div>
+
+                              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                                {trendingPornstars.map((star, idx) => (
+                                  <div
+                                    key={idx}
+                                    onClick={() => handlePornstarClick(star)}
+                                    className="group relative bg-gray-900 border border-gray-800 hover:border-white cursor-pointer transition-all aspect-[3/4] overflow-hidden"
+                                  >
+                                    {star.thumbnailUrl ? (
+                                      <img
+                                        src={star.thumbnailUrl}
+                                        alt={star.name}
+                                        className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500 opacity-80 group-hover:opacity-100"
+                                        onError={(e) => {
+                                          // If image fails to load, hide it and show fallback
+                                          e.currentTarget.style.display = 'none';
+                                        }}
+                                      />
+                                    ) : null}
+                                    {!star.thumbnailUrl && (
+                                      <div className="w-full h-full flex items-center justify-center bg-gray-800 text-gray-600">
+                                        <StarIcon />
+                                      </div>
+                                    )}
+                                    <div className="absolute bottom-0 w-full p-2 bg-gradient-to-t from-black via-black/80 to-transparent">
+                                      <h3 className="text-sm font-bold text-white text-center uppercase tracking-wider">{star.name}</h3>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                              {/* Trending Pornstars Load More */}
+                              {trendingPornstars.length > 0 && trendingPornstarsHasMore && (
+                                <div className="flex justify-center mt-6">
+                                  <button
+                                    onClick={handleLoadMoreTrendingPornstars}
+                                    className="px-6 py-2 border border-gray-700 hover:border-white hover:bg-white/10 transition-all uppercase tracking-wide text-sm font-bold"
+                                  >
+                                    LOAD MORE PORNSTARS
+                                  </button>
+                                </div>
+                              )}
+                            </>
+                          )}
+                        </>
                       )}
 
                       {!isTrendingLoading && ((trendingSubTab === 'videos' && trendingVideos.length === 0) || (trendingSubTab === 'pornstars' && trendingPornstars.length === 0)) && (
