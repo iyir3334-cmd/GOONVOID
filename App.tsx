@@ -5,8 +5,13 @@ import { VideoPlayer } from './components/VideoPlayer';
 import { VideoList } from './components/VideoList';
 import { ActionModal } from './components/ActionModal';
 import { VerticalFeed } from './components/VerticalFeed'; // Import new feed component
+<<<<<<< HEAD
 import { getVideoStreamUrl, searchVideos, VideoResult, PROVIDER_KEYS, getProviderKeyFromUrl, PROVIDERS, ProviderKey, fetchMetadata, getTrendingVideos, getTrendingPornstars, PornstarResult } from './services/videoService';
 import { InfoIcon, HistoryIcon, FilterIcon, StarIcon, PlayIcon, DownloadIcon, UploadIcon, TrashIcon, LoadingSpinnerIcon, MobileIcon, TrendingIcon } from './components/icons';
+=======
+import { getVideoStreamUrl, searchVideos, VideoResult, PROVIDER_KEYS, getProviderKeyFromUrl, PROVIDERS, ProviderKey, fetchMetadata } from './services/videoService';
+import { InfoIcon, HistoryIcon, FilterIcon, StarIcon, PlayIcon, DownloadIcon, UploadIcon, TrashIcon, LoadingSpinnerIcon, MobileIcon } from './components/icons';
+>>>>>>> 71ff8c9ad8084b891fde8c4ac51229da259d3bbc
 import { saveToHistory, getHistory, clearHistory, getFavoriteProviders, saveFavoriteProvider, removeFavoriteProvider } from './services/storageService';
 import { HypnoOverlay } from './components/HypnoOverlay';
 import { saveLocalVideo, getLocalVideos, deleteLocalVideo, LocalVideo } from './services/localVideoService';
@@ -14,7 +19,11 @@ import { saveLocalVideo, getLocalVideos, deleteLocalVideo, LocalVideo } from './
 // This is only used for the "Feeling Lucky" feature
 const POSITIVE_TAGS = ['Hypno', 'PMV', 'Goon', 'Edging', 'JOI', 'Compilation', 'Tease', 'Denial'];
 
+<<<<<<< HEAD
 type TabView = 'search' | 'history' | 'providers' | 'favorites' | 'downloads' | 'gallery' | 'trending';
+=======
+type TabView = 'search' | 'history' | 'providers' | 'favorites' | 'downloads' | 'gallery';
+>>>>>>> 71ff8c9ad8084b891fde8c4ac51229da259d3bbc
 
 // Extracted ProviderItem component to fix type checking on 'key' prop and avoid re-definition
 const ProviderItem: React.FC<{
@@ -91,6 +100,7 @@ const App: React.FC = () => {
   // New State: Selected Provider Tab for Results View
   const [selectedResultProvider, setSelectedResultProvider] = useState<string>('all');
 
+<<<<<<< HEAD
   // Trending State
   const [trendingSubTab, setTrendingSubTab] = useState<'videos' | 'pornstars'>('videos');
   const [trendingProvider, setTrendingProvider] = useState<ProviderKey>('pornhub');
@@ -98,6 +108,8 @@ const App: React.FC = () => {
   const [trendingPornstars, setTrendingPornstars] = useState<PornstarResult[]>([]);
   const [isTrendingLoading, setIsTrendingLoading] = useState(false);
 
+=======
+>>>>>>> 71ff8c9ad8084b891fde8c4ac51229da259d3bbc
   // Load history and favorites on mount
   useEffect(() => {
     setHistory(getHistory());
@@ -374,6 +386,7 @@ const App: React.FC = () => {
     setIsFeedView(true);
   };
 
+<<<<<<< HEAD
   const fetchTrending = async (type: 'videos' | 'pornstars', provider: ProviderKey) => {
     setIsTrendingLoading(true);
     setTrendingVideos([]);
@@ -410,6 +423,8 @@ const App: React.FC = () => {
     handleSearch(star.name);
   };
 
+=======
+>>>>>>> 71ff8c9ad8084b891fde8c4ac51229da259d3bbc
   return (
     <div className="min-h-screen text-white flex flex-col items-center p-4 sm:p-6 lg:p-8 relative z-20">
 
@@ -546,6 +561,7 @@ const App: React.FC = () => {
                   {localVideos.length}
                 </span>
               </button>
+<<<<<<< HEAD
 
               <button
                 onClick={() => { setActiveTab('trending'); fetchTrending('videos', 'pornhub'); }}
@@ -554,6 +570,8 @@ const App: React.FC = () => {
                 <TrendingIcon />
                 TRENDING
               </button>
+=======
+>>>>>>> 71ff8c9ad8084b891fde8c4ac51229da259d3bbc
               <button
                 onClick={() => setActiveTab('providers')}
                 className={`flex items-center gap-2 text-sm font-bold px-4 py-2 rounded-none transition-all uppercase tracking-wider ${activeTab === 'providers' ? 'bg-white text-black shadow-lg' : 'text-gray-500 hover:text-white hover:bg-white/10'}`}
@@ -650,6 +668,7 @@ const App: React.FC = () => {
               </div>
             )}
 
+<<<<<<< HEAD
 
 
             {/* TRENDING TAB */}
@@ -744,6 +763,8 @@ const App: React.FC = () => {
               </div>
             )}
 
+=======
+>>>>>>> 71ff8c9ad8084b891fde8c4ac51229da259d3bbc
             {/* PUBLIC GALLERY TAB CONTENT */}
             {activeTab === 'gallery' && (
               <div className="space-y-6 animate-in fade-in duration-300">

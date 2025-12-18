@@ -1,5 +1,9 @@
 
+<<<<<<< HEAD
 import { extractVideoResultsFromHtml, extractStreamUrlFromHtml, extractPornstarResultsFromHtml } from './htmlParserService';
+=======
+import { extractVideoResultsFromHtml, extractStreamUrlFromHtml } from './htmlParserService';
+>>>>>>> 71ff8c9ad8084b891fde8c4ac51229da259d3bbc
 
 export type ProviderKey = 'pornhub' | 'xvideos' | 'brazz' | 'generic';
 
@@ -11,6 +15,7 @@ export interface VideoResult {
     source: ProviderKey;
 }
 
+<<<<<<< HEAD
 export interface PornstarResult {
     name: string;
     pageUrl: string;
@@ -18,6 +23,8 @@ export interface PornstarResult {
     source: ProviderKey;
 }
 
+=======
+>>>>>>> 71ff8c9ad8084b891fde8c4ac51229da259d3bbc
 // --- PROXY ROTATION SYSTEM ---
 // REPLACEMENT: Local Vite Proxy (server-side forwarding)
 // This bypasses CORS and external rate limits by using the local Node server.
@@ -184,13 +191,17 @@ interface ProviderConfig {
     name: string;
     baseUrl: string;
     searchPath: string; // e.g., '/search?q=' or '/s/'
+<<<<<<< HEAD
     trendingPath?: string;
     pornstarPath?: string;
+=======
+>>>>>>> 71ff8c9ad8084b891fde8c4ac51229da259d3bbc
 }
 
 // RESTRICTED Provider List (As requested)
 const PROVIDER_CONFIG: ProviderConfig[] = [
     { key: 'generic', name: 'Direct Link', baseUrl: '', searchPath: '' }, // Keep generic for direct URL entry
+<<<<<<< HEAD
     {
         key: 'pornhub',
         name: 'PornHub',
@@ -215,6 +226,11 @@ const PROVIDER_CONFIG: ProviderConfig[] = [
         trendingPath: '/', // Homepage usually has latest/trending
         pornstarPath: '/pornstars/' // Guessed, will verify
     },
+=======
+    { key: 'pornhub', name: 'PornHub', baseUrl: 'https://www.pornhub.com', searchPath: '/video/search?search=' },
+    { key: 'xvideos', name: 'XVideos', baseUrl: 'https://www.xvideos.com', searchPath: '/?k=' },
+    { key: 'brazz', name: 'Brazz', baseUrl: 'https://brazz.org', searchPath: '/search/' },
+>>>>>>> 71ff8c9ad8084b891fde8c4ac51229da259d3bbc
 ];
 
 
@@ -295,6 +311,7 @@ const genericGetStream = async (pageUrl: string): Promise<string> => {
 type Provider = {
     search: (q: string) => Promise<VideoResult[]>;
     stream: (pageUrl: string) => Promise<string>;
+<<<<<<< HEAD
     getTrending: () => Promise<VideoResult[]>;
     getPornstars: () => Promise<PornstarResult[]>;
     name: string;
@@ -332,13 +349,21 @@ const genericGetPornstars = async (config: ProviderConfig): Promise<PornstarResu
     }
 }
 
+=======
+    name: string;
+};
+
+>>>>>>> 71ff8c9ad8084b891fde8c4ac51229da259d3bbc
 // Dynamically build the PROVIDERS object from the configuration
 export const PROVIDERS = PROVIDER_CONFIG.reduce((acc, config) => {
     acc[config.key] = {
         search: (q: string) => genericSearchProvider(config, q),
         stream: genericGetStream,
+<<<<<<< HEAD
         getTrending: () => genericGetTrending(config),
         getPornstars: () => genericGetPornstars(config),
+=======
+>>>>>>> 71ff8c9ad8084b891fde8c4ac51229da259d3bbc
         name: config.name,
     };
     return acc;
@@ -420,6 +445,7 @@ export const getProviderKeyFromUrl = (url: string): ProviderKey => {
     }
     return 'generic'; // Fallback to generic direct link handler
 };
+<<<<<<< HEAD
 
 export const getTrendingVideos = async (providerKey: ProviderKey): Promise<VideoResult[]> => {
     if (!PROVIDERS[providerKey]?.getTrending) return [];
@@ -430,3 +456,5 @@ export const getTrendingPornstars = async (providerKey: ProviderKey): Promise<Po
     if (!PROVIDERS[providerKey]?.getPornstars) return [];
     return PROVIDERS[providerKey].getPornstars();
 };
+=======
+>>>>>>> 71ff8c9ad8084b891fde8c4ac51229da259d3bbc

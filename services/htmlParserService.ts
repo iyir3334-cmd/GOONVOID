@@ -1,5 +1,9 @@
 
+<<<<<<< HEAD
 import { VideoResult, PornstarResult } from "./videoService";
+=======
+import { VideoResult } from "./videoService";
+>>>>>>> 71ff8c9ad8084b891fde8c4ac51229da259d3bbc
 
 // Interface for a specific site parser
 interface SiteParser {
@@ -243,6 +247,7 @@ export const extractVideoResultsFromHtml = async (
     });
 
     console.log(`[htmlParser] Extracted ${unique.size} valid videos for ${providerName}`);
+<<<<<<< HEAD
     console.log(`[htmlParser] Extracted ${unique.size} valid videos for ${providerName}`);
     return Array.from(unique.values());
 };
@@ -351,6 +356,8 @@ export const extractPornstarResultsFromHtml = async (
         }
     });
 
+=======
+>>>>>>> 71ff8c9ad8084b891fde8c4ac51229da259d3bbc
     return Array.from(unique.values());
 };
 
