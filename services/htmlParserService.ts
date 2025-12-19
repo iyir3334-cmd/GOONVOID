@@ -205,6 +205,59 @@ const brazzParser: SiteParser = {
     }
 };
 
+const threeDPornDudeParser: SiteParser = {
+    name: '3dPornDude',
+    domains: ['3dporndude.com'],
+    parse: (html: string, baseUrl: string): VideoResult[] => {
+        const results: VideoResult[] = [];
+
+        // 3dporndude uses div.video-item or .col-lg-3 for containers
+        const videoBlockRegex = /<(?:div|article)[^>]+class="[^"]*(?:video-item|col-lg-3)[^"]*"[^>]*>([\s\S]*?)(?=<(?:div|article)[^>]+class="[^"]*(?:video-item|col-lg-3)|$)/gi;
+
+        let match;
+        while ((match = videoBlockRegex.exec(html)) !== null) {
+            const content = match[1];
+
+            // Link and Title
+            const linkMatch = /<a[^>]+href="([^"]*\/video\/[^"]+)"[^>]*title="([^"]+)"/i.exec(content) ||
+                /<a[^>]+href="([^"]*\/video\/[^"]+)"[^>]*>([\s\S]*?)<\/a>/i.exec(content);
+
+            if (!linkMatch) continue;
+
+            const path = linkMatch[1];
+            const title = linkMatch[2].replace(/<[^>]+>/g, '').trim();
+
+            // Thumbnail - 3dporndude uses data-original for lazy loading
+            const thumbMatch = /<img[^>]+(?:data-original|data-src|src|data-webp)="([^"]+)"/i.exec(content);
+            const thumb = thumbMatch ? thumbMatch[1] : '';
+
+            if (path && title) {
+                results.push({
+                    title: decodeHtmlEntities(title),
+                    pageUrl: resolveUrl(baseUrl, path),
+                    thumbnailUrl: thumb ? resolveUrl(baseUrl, thumb) : '',
+                    source: '3dporndude' as any
+                });
+            }
+        }
+
+        // Fallback for list items if blocks didn't match
+        if (results.length === 0) {
+            const simpleRegex = /<a[^>]+href="([^"]*\/video\/[^"]+)"[^>]+title="([^"]+)"/gi;
+            while ((match = simpleRegex.exec(html)) !== null) {
+                results.push({
+                    title: decodeHtmlEntities(match[2]),
+                    pageUrl: resolveUrl(baseUrl, match[1]),
+                    thumbnailUrl: '',
+                    source: '3dporndude' as any
+                });
+            }
+        }
+
+        return results;
+    }
+};
+
 
 // --- Generic / Fallback Logic ---
 
@@ -298,6 +351,8 @@ export const extractVideoResultsFromHtml = async (
         results.push(...xvideosParser.parse(html, baseUrl));
     } else if (baseUrl.includes('brazz')) {
         results.push(...brazzParser.parse(html, baseUrl));
+    } else if (baseUrl.includes('3dporndude')) {
+        results.push(...threeDPornDudeParser.parse(html, baseUrl));
     }
 
     // 2. If specific parser failed or returned few results, try Generic Strategies
@@ -487,6 +542,28 @@ export const extractPornstarResultsFromHtml = async (
                     pageUrl: resolveUrl(baseUrl, path),
                     thumbnailUrl: thumb ? resolveUrl(baseUrl, thumb) : '',
                     source: 'brazz'
+                });
+            }
+        }
+    } else if (baseUrl.includes('3dporndude')) {
+        // 3dporndude Artists (sites)
+        // Structure: <div class="site-item"> <a href="..."> <img src="..."> <span>Name</span>
+        const siteBlockRegex = /<(?:div|article)[^>]+class="[^"]*(?:site-item|col-lg-3)[^"]*"[^>]*>([\s\S]*?)(?=<(?:div|article)[^>]+class="[^"]*(?:site-item|col-lg-3)|$)/gi;
+        let match;
+        while ((match = siteBlockRegex.exec(html)) !== null) {
+            const content = match[1];
+
+            const nameMatch = /<span>([\s\S]*?)<\/span>/.exec(content) ||
+                /<a[^>]*>([\s\S]*?)<\/a>/.exec(content);
+            const linkMatch = /<a[^>]+href="([^"]*\/sites\/[^"]+)"/.exec(content);
+            const thumbMatch = /<img[^>]+(?:data-original|data-src|src)="([^"]+)"/.exec(content);
+
+            if (nameMatch && linkMatch) {
+                results.push({
+                    name: decodeHtmlEntities(nameMatch[1].replace(/<[^>]+>/g, '').trim()),
+                    pageUrl: resolveUrl(baseUrl, linkMatch[1]),
+                    thumbnailUrl: thumbMatch ? resolveUrl(baseUrl, thumbMatch[1]) : '',
+                    source: '3dporndude' as any
                 });
             }
         }

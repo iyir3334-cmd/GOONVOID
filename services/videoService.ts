@@ -1,7 +1,7 @@
 
 import { extractVideoResultsFromHtml, extractStreamUrlFromHtml, extractPornstarResultsFromHtml } from './htmlParserService';
 
-export type ProviderKey = 'pornhub' | 'xvideos' | 'brazz' | 'generic';
+export type ProviderKey = 'pornhub' | 'xvideos' | 'brazz' | '3dporndude' | 'generic';
 
 export interface VideoResult {
     id?: string;
@@ -92,11 +92,12 @@ export const resolvePlayableUrl = async (embedUrl: string): Promise<string | nul
             /["']file["']\s*:\s*["']([^"']+\.mp4[^"']*)["']/i,
             /["']src["']\s*:\s*["']([^"']+\.mp4[^"']*)["']/i,
             /sources:\s*\[\s*{\s*file:\s*["']([^"']+)["']/i,
-            /video_url\s*=\s*['"]([^'"]+)['"]/i,
+            /video_url\s*=\s*['"]([^'"]+)[\"']/i,
             /urlHigh\s*=\s*['"]([^'"]+)['"]/i,
             /video_hd\s*=\s*['"]([^'"]+)['"]/i,
             /video_url_1080p\s*=\s*['"]([^'"]+)['"]/i,
-            /get_file\/[^"']+/i
+            /get_file\/[^"']+/i,
+            /https?:\/\/3dporndude\.com\/get_file\/[^"']+/i
         ];
 
         for (const pattern of brazzPatterns) {
@@ -104,7 +105,7 @@ export const resolvePlayableUrl = async (embedUrl: string): Promise<string | nul
             if (match) {
                 const rawUrl = match[1] || match[0];
                 const url = rawUrl.replace(/\\/g, '');
-                console.log(`[videoService] Found Brazz/Generic pattern match: ${url}`);
+                console.log(`[videoService] Found Brazz/Generic/3dPD pattern match: ${url}`);
                 if (url.startsWith('http')) return url;
                 // Resolve relative URL
                 const domain = embedUrl.split('/').slice(0, 3).join('/');
@@ -112,19 +113,55 @@ export const resolvePlayableUrl = async (embedUrl: string): Promise<string | nul
             }
         }
 
-        // Pornhub JSON/Flashvars pattern
-        const flashVarsMatch = html.match(/flashvars_\d+\s*=\s*({.*?});/);
+        // BanHQ (3dporndude) Iframe Check
+        const banHq = html.match(/https?:\/\/cdn\.banhq\.com\/html\/[^"']+\.html/i);
+        if (banHq) {
+            console.log(`[videoService] Detected BanHQ iframe, following recursive resolution...`);
+            return resolvePlayableUrl(banHq[0]); // Recursive call to resolve the actual MP4 inside the banhq iframe
+        }
+
+        // Pornhub JSON/Flashvars pattern OR 3dporndude KVS flashvars
+        const flashVarsMatch = html.match(/flashvars_\d+\s*=\s*({.*?});/) ||
+            html.match(/flashvars\s*=\s*({[\s\S]*?});/);
         if (flashVarsMatch && flashVarsMatch[1]) {
             try {
-                const config = JSON.parse(flashVarsMatch[1]);
+                // For 3dporndude, we need to be careful with unquoted keys or trailing commas
+                // KT Player often has: { video_url: '...', }
+                let configStr = flashVarsMatch[1];
+
+                // Basic cleanup to make it closer to valid JSON if it's not (KT Player style)
+                if (!configStr.includes('"video_url"')) {
+                    configStr = configStr.replace(/([a-z0-9_]+)\s*:/gi, '"$1":');
+                    configStr = configStr.replace(/'/g, '"');
+                    // Remove trailing commas before closing braces
+                    configStr = configStr.replace(/,\s*([}\]])/g, '$1');
+                }
+
+                const config = JSON.parse(configStr);
+
+                // Pornhub style
                 if (config.mediaDefinitions) {
                     const defs = config.mediaDefinitions.filter((d: any) => d.videoUrl && !d.videoUrl.includes('m3u8'));
                     const hq = defs.find((d: any) => d.quality === '1080' || d.quality === 1080) ||
                         defs.sort((a: any, b: any) => parseInt(b.quality || 0) - parseInt(a.quality || 0))[0];
                     if (hq) return hq.videoUrl;
                 }
+
+                // 3dporndude (KVS / KT Player) style
+                // Priority: alt_url2 (1080p) > alt_url (720p) > video_url (480p)
+                const kvsUrl = config.video_alt_url2 || config.video_alt_url || config.video_url;
+                if (kvsUrl) {
+                    console.log(`[videoService] Found KVS stream: ${kvsUrl}`);
+                    return kvsUrl;
+                }
             } catch (e) {
-                console.warn("[videoService] Failed to parse Flashvars JSON");
+                console.warn("[videoService] Failed to parse Flashvars JSON", e);
+                // Secondary check for manual extraction if JSON fails
+                const alt2 = flashVarsMatch[1].match(/video_alt_url2\s*:\s*['"]([^'"]+)['"]/i);
+                const alt = flashVarsMatch[1].match(/video_alt_url\s*:\s*['"]([^'"]+)['"]/i);
+                const vid = flashVarsMatch[1].match(/video_url\s*:\s*['"]([^'"]+)['"]/i);
+                const best = alt2?.[1] || alt?.[1] || vid?.[1];
+                if (best) return best;
             }
         }
 
@@ -277,6 +314,14 @@ const PROVIDER_CONFIG: ProviderConfig[] = [
         trendingPath: '/videos/sortby/beingwatched/', // "Being watched" is the trending equivalent
         pornstarPath: '/pornstars/sortby/views/' // Most viewed pornstars
     },
+    {
+        key: '3dporndude',
+        name: '3dPornDude',
+        baseUrl: 'https://3dporndude.com',
+        searchPath: '/search/',
+        trendingPath: '/',
+        pornstarPath: '/sites/'
+    },
 ];
 
 const genericSearchProvider = async (config: ProviderConfig, q: string, page: number = 1): Promise<VideoResult[]> => {
@@ -295,9 +340,10 @@ const genericSearchProvider = async (config: ProviderConfig, q: string, page: nu
             url += `&p=${page}`;
         } else if (config.key === 'brazz') {
             // Brazz: /search/query/page/2/
-            // Note: Current searchPath is '/search/', so url is already /search/query.
-            // We need to inject /page/2/
             url = `${config.baseUrl}${config.searchPath}${encodeURIComponent(q)}/page/${page}/`;
+        } else if (config.key === '3dporndude') {
+            // 3dporndude: /search/query/?from_videos=2
+            url = `${config.baseUrl}${config.searchPath}${encodeURIComponent(q)}/?from_videos=${page}`;
         }
     }
 
@@ -666,9 +712,12 @@ export const getActorVideos = async (actor: PornstarResult, page: number = 1): P
     } else if (page > 1) {
         if (actor.source === 'brazz') {
             // Brazz: https://brazz.org/videos/models/ID/name/page/2/
-            // Ensure trailing slash on base then append page/N/
             const baseUrl = actor.pageUrl.endsWith('/') ? actor.pageUrl : `${actor.pageUrl}/`;
             pageUrl = `${baseUrl}page/${page}/`;
+        } else if (actor.source === '3dporndude') {
+            // 3dporndude: https://3dporndude.com/sites/name/?from=2
+            const baseUrl = actor.pageUrl.endsWith('/') ? actor.pageUrl : `${actor.pageUrl}/`;
+            pageUrl = `${baseUrl}?from=${page}`;
         }
     }
 

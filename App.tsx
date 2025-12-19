@@ -878,7 +878,7 @@ const App: React.FC = () => {
 
                 {/* Provider Sub-Tabs */}
                 <div className="flex justify-center gap-2">
-                  {(['pornhub', 'xvideos', 'brazz'] as ProviderKey[]).map(p => (
+                  {(['pornhub', 'xvideos', 'brazz', '3dporndude'] as ProviderKey[]).map(p => (
                     <button
                       key={p}
                       onClick={() => setTrendingProvider(p)}
