@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { LoadingSpinnerIcon, PlayIcon } from './icons';
+import { LoadingSpinnerIcon, PlayIcon } from './UIIcons';
 
 interface SearchFormProps {
   onSearch: (query: string) => void;

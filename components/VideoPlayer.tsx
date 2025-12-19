@@ -1,6 +1,6 @@
 
 import React, { useEffect, useRef, useState } from 'react';
-import { LoadingSpinnerIcon, CogIcon, MicIcon, DownloadIcon } from './icons';
+import { LoadingSpinnerIcon, CogIcon, MicIcon, DownloadIcon, ShuffleIcon } from './UIIcons';
 import { HypnoOverlay } from './HypnoOverlay';
 import { LiveTranscriptionService } from '../services/liveAudioService';
 import { saveLocalVideo } from '../services/localVideoService';
@@ -9,6 +9,7 @@ import { resolvePlayableUrl } from '../services/videoService';
 interface VideoPlayerProps {
     videoUrl: string | null;
     videoTitle: string | null;
+    videoSource?: string | null;
     isStreamLoading: boolean;
     isHypnoMode: boolean;
     onVideoSaved?: () => void;
@@ -28,7 +29,7 @@ declare global {
     }
 }
 
-export const VideoPlayer: React.FC<VideoPlayerProps> = ({ videoUrl, videoTitle, isStreamLoading, isHypnoMode, onVideoSaved }) => {
+export const VideoPlayer: React.FC<VideoPlayerProps> = ({ videoUrl, videoTitle, videoSource, isStreamLoading, isHypnoMode, onVideoSaved }) => {
     const videoRef = useRef<HTMLVideoElement>(null);
     const hlsRef = useRef<any>(null); // To hold the Hls instance
     const errorRetryCount = useRef(0);
@@ -51,8 +52,166 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ videoUrl, videoTitle, 
 
     // Determine if the URL is a direct stream or an embed page
     // FIX: Added blob: check to ensure local files are treated as direct streams
-    const isDirectStream = videoUrl ? (videoUrl.includes('.mp4') || videoUrl.includes('.m3u8') || videoUrl.startsWith('blob:')) : false;
-    const isEmbed = videoUrl && !isDirectStream;
+    // --- AUTO-CLIP STATE ---
+    const [isAutoClip, setIsAutoClip] = useState(false);
+    const clipTimeoutRef = useRef<any>(null);
+
+    // --- STREAM RESOLUTION STATE ---
+    const [resolvedDirectUrl, setResolvedDirectUrl] = useState<string | null>(null);
+    const [isResolving, setIsResolving] = useState(false);
+
+    // --- IFRAME AUTO-CLIP STATE ---
+    const [iframeKey, setIframeKey] = useState(0);
+    const [iframeTimestamp, setIframeTimestamp] = useState(0);
+    const [showIframe, setShowIframe] = useState(true);
+    const [isVoidStarted, setIsVoidStarted] = useState(false);
+
+    // Determine if the URL passed in is ALREADY a direct stream (MP4/M3U8/Blob)
+    const isPropDirectStream = videoUrl ? (videoUrl.includes('.mp4') || videoUrl.includes('.m3u8') || videoUrl.startsWith('blob:')) : false;
+
+    // effective URL to play (either the resolved one or the original)
+    const activeUrl = resolvedDirectUrl || videoUrl;
+
+    // It is a direct stream if the prop was direct OR we resolved it
+    const isActiveDirectStream = isPropDirectStream || !!resolvedDirectUrl;
+
+    // It is an embed if we have a URL, it's NOT a direct stream, and we have NOT resolved it yet
+    const isEmbed = videoUrl && !isActiveDirectStream;
+
+
+
+    // --- VOID MODE INITIATION ---
+    const handleInitiateVoid = async () => {
+        if (isEmbed && videoUrl) {
+            setIsResolving(true);
+            setLiveCaption("TRANSMUTING EMBED TO STREAM...");
+            try {
+                const resolved = await resolvePlayableUrl(videoUrl);
+                if (resolved) {
+                    setResolvedDirectUrl(resolved);
+                    setIsVoidStarted(true);
+                    setLiveCaption("STREAM SYNCED.");
+                } else {
+                    setLiveCaption("TRANSMUTATION FAILED. USING IFRAME PROTOCOL.");
+                    setIsVoidStarted(true);
+                }
+            } catch (e) {
+                setLiveCaption("NEURAL LINK ERROR. USING IFRAME.");
+                setIsVoidStarted(true);
+            } finally {
+                setIsResolving(false);
+            }
+        } else {
+            setIsVoidStarted(true);
+        }
+    };
+
+    // Toggle Auto-Clip
+    const toggleAutoClip = () => {
+        const nextState = !isAutoClip;
+        setIsAutoClip(nextState);
+        if (nextState) {
+            handleInitiateVoid();
+        } else {
+            setIsVoidStarted(false);
+            setResolvedDirectUrl(null); // Return to iframe if loop stopped
+        }
+    };
+
+    // --- STREAM RESOLUTION LOGIC ---
+    useEffect(() => {
+        // Reset resolved state when the main video prop changes
+        setResolvedDirectUrl(null);
+        setIsResolving(false);
+        setIsVoidStarted(false);
+        // Do NOT reset isAutoClip here, let it persist across videos if active?
+        // Actually, if we are in a new video, we should probably re-initiate if auto-clip is still on.
+        if (isAutoClip) {
+            handleInitiateVoid();
+        }
+    }, [videoUrl]);
+
+
+    // Listen for native video play to trigger Void Mode
+    useEffect(() => {
+        const video = videoRef.current;
+        if (!video) return;
+
+        const handlePlay = () => {
+            if (isAutoClip && !isVoidStarted) {
+                console.log("[VideoPlayer] Native Play detected, starting Void Loop");
+                setIsVoidStarted(true);
+            }
+        };
+
+        video.addEventListener('play', handlePlay);
+        return () => video.removeEventListener('play', handlePlay);
+    }, [isAutoClip, isVoidStarted]);
+
+
+
+    // Auto-Clip Logic Effect
+    useEffect(() => {
+        if (!isAutoClip || !isVoidStarted) {
+            if (clipTimeoutRef.current) clearTimeout(clipTimeoutRef.current);
+            return;
+        }
+
+        // --- IFRAME MODE ---
+        // If it's an embed (and we failed to resolve a direct stream), we use the reload workaround
+        if (isEmbed) {
+            const triggerNextIframeClip = () => {
+                const clipDurationMs = (Math.random() * 25000) + 5000;
+                const randomStart = Math.floor(Math.random() * 300);
+
+                console.log(`[AutoClip:Iframe] Hard Reset to ${randomStart}s`);
+
+                // Hard Reset: Hide -> Wait -> Show (Forces fresh session)
+                setShowIframe(false);
+
+                setTimeout(() => {
+                    setIframeTimestamp(randomStart);
+                    setIframeKey(prev => prev + 1);
+                    setShowIframe(true);
+                    setLiveCaption(`VOID CLIP: ${randomStart}s START`);
+
+                    clipTimeoutRef.current = setTimeout(triggerNextIframeClip, clipDurationMs);
+                }, 100);
+            };
+
+            triggerNextIframeClip();
+            return () => { if (clipTimeoutRef.current) clearTimeout(clipTimeoutRef.current); };
+        }
+
+        // --- NATIVE VIDEO MODE ---
+        if (!videoRef.current) return;
+        const video = videoRef.current;
+
+        const triggerNextClip = () => {
+            if (!video.duration || isNaN(video.duration)) {
+                clipTimeoutRef.current = setTimeout(triggerNextClip, 1000);
+                return;
+            }
+
+            const clipDurationMs = (Math.random() * 25000) + 5000;
+            const maxStart = Math.max(0, video.duration - (clipDurationMs / 1000));
+            const randomStart = Math.random() * maxStart;
+
+            console.log(`[AutoClip] Jumping to ${randomStart.toFixed(1)}s`);
+
+            video.currentTime = randomStart;
+            video.play().catch(e => console.error("AutoClip play failed", e));
+            setLiveCaption(`VOID CLIP: ${(clipDurationMs / 1000).toFixed(0)}s SEGMENT`);
+
+            clipTimeoutRef.current = setTimeout(triggerNextClip, clipDurationMs);
+        };
+
+        triggerNextClip();
+
+        return () => {
+            if (clipTimeoutRef.current) clearTimeout(clipTimeoutRef.current);
+        };
+    }, [isAutoClip, isVoidStarted, activeUrl, isEmbed]); // Re-run if toggled, started, video changes, or embed status changes
 
     // --- DOWNLOAD LOGIC ---
     const handleDownload = async () => {
@@ -65,7 +224,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ videoUrl, videoTitle, 
         }
 
         // HLS check (Only block if we know it's a direct m3u8 stream and we are NOT handling embed resolution)
-        if (isDirectStream && videoUrl.includes('.m3u8')) {
+        if (isActiveDirectStream && activeUrl.includes('.m3u8')) {
             alert("Live streams (HLS/m3u8) cannot be downloaded directly as a single file. Please use screen recording software.");
             return;
         }
@@ -200,6 +359,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ videoUrl, videoTitle, 
     useEffect(() => {
         return () => {
             liveServiceRef.current?.stop();
+            if (clipTimeoutRef.current) clearTimeout(clipTimeoutRef.current);
         };
     }, []);
 
@@ -214,6 +374,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ videoUrl, videoTitle, 
         setCurrentQuality(-1);
         setIsQualityMenuOpen(false);
         setPlaybackError(null);
+        // Don't auto-reset AutoClip on video change? 
+        // User might want to keep the mode on.
+        // If we want to reset: setIsAutoClip(false);
 
         if (hlsRef.current) {
             hlsRef.current.destroy();
@@ -231,8 +394,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ videoUrl, videoTitle, 
 
         if (!videoElement) return;
 
-        if (videoUrl && isDirectStream) {
-            const isHls = videoUrl.includes('.m3u8');
+        if (activeUrl && isActiveDirectStream) {
+            const isHls = activeUrl.includes('.m3u8');
             const Hls = window.Hls;
 
             if (isHls && Hls && Hls.isSupported()) {
@@ -243,7 +406,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ videoUrl, videoTitle, 
                 });
                 hlsRef.current = hls;
 
-                hls.loadSource(videoUrl);
+                hls.loadSource(activeUrl);
                 hls.attachMedia(videoElement);
 
                 hls.on(Hls.Events.MANIFEST_PARSED, (event: any, data: any) => {
@@ -251,7 +414,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ videoUrl, videoTitle, 
                     if (data.levels && data.levels.length > 1) {
                         setQualityLevels(data.levels.sort((a: HlsLevel, b: HlsLevel) => b.height - a.height));
                     }
-                    videoElement.play().catch(e => console.log("Autoplay blocked", e));
+                    if (!isAutoClip) videoElement.play().catch(e => console.log("Autoplay blocked", e));
                 });
 
                 hls.on(Hls.Events.ERROR, (event: any, data: any) => {
@@ -270,9 +433,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ videoUrl, videoTitle, 
                     }
                 });
             } else {
-                videoElement.src = videoUrl;
+                videoElement.src = activeUrl;
                 videoElement.load();
-                videoElement.play().catch(e => console.log("Autoplay blocked", e));
+                if (!isAutoClip) videoElement.play().catch(e => console.log("Autoplay blocked", e));
             }
 
             videoElement.onerror = () => setPlaybackError("Video load error.");
@@ -286,7 +449,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ videoUrl, videoTitle, 
             }
         };
 
-    }, [videoUrl, isDirectStream]); // Re-run if URL changes or type changes
+    }, [activeUrl, isActiveDirectStream]); // Re-run if URL changes or type changes
 
     const handleQualityChange = (levelIndex: number) => {
         if (hlsRef.current) {
@@ -306,113 +469,158 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ videoUrl, videoTitle, 
             />
 
             {/* Fallback Iframe Player */}
-            {isEmbed && videoUrl && (
+            {isEmbed && videoUrl && showIframe && (
                 <iframe
-                    src={videoUrl}
+                    key={iframeKey}
+                    src={`${videoUrl}${videoUrl.includes('?') ? '&' : '?'}t=${iframeTimestamp}&autoplay=${isVoidStarted ? 1 : 0}&muted=1&_=${Date.now()}`}
                     className="w-full h-full relative z-10"
                     frameBorder="0"
                     allowFullScreen
-                    allow="autoplay; encrypted-media"
-                    sandbox="allow-scripts allow-same-origin allow-presentation"
+                    allow="autoplay *; fullscreen *; encrypted-media *; accelerometer; gyroscope; picture-in-picture; screen-wake-lock *"
+                    sandbox="allow-forms allow-scripts allow-same-origin allow-presentation allow-popups allow-top-navigation-by-user-activation"
                 />
+            )}
+
+
+
+            {/* BACK TO IFRAME BUTTON */}
+            {resolvedDirectUrl && !videoUrl?.startsWith('blob:') && (
+                <div className="absolute bottom-4 right-4 z-[70]">
+                    <button
+                        onClick={() => {
+                            setResolvedDirectUrl(null);
+                            setIsVoidStarted(false);
+                        }}
+                        className="px-4 py-2 bg-black/60 border border-white/20 text-white text-[10px] font-bold uppercase tracking-widest hover:bg-white hover:text-black transition-all"
+                    >
+                        Back to Iframe
+                    </button>
+                </div>
             )}
 
             {/* Standard Video Element (Hidden if embed) */}
             <video
                 ref={videoRef}
                 className={`w-full h-full bg-black relative z-10 ${isEmbed ? 'hidden' : 'block'}`}
-                controls
+                controls={!isAutoClip}
                 playsInline
-                muted
+                muted={!resolvedDirectUrl}
                 autoPlay
                 loop
             />
 
             {/* --- LIVE AUDIO CONTROL --- */}
-            {videoUrl && (
-                <div className="absolute top-4 left-4 z-50 flex gap-2">
-                    <button
-                        onClick={handleStartAudioCapture}
-                        className={`
+            {
+                videoUrl && (
+                    <div className="absolute top-4 left-4 z-50 flex gap-2 flex-wrap">
+                        <button
+                            onClick={handleStartAudioCapture}
+                            className={`
                       flex items-center gap-2 px-3 py-1 text-xs font-bold uppercase tracking-widest border transition-all
                       ${isCapturingAudio
-                                ? 'bg-red-900/80 text-white border-red-500 animate-pulse'
-                                : 'bg-black/60 text-gray-300 border-gray-600 hover:text-white hover:border-white'
-                            }
+                                    ? 'bg-red-900/80 text-white border-red-500 animate-pulse'
+                                    : 'bg-black/60 text-gray-300 border-gray-600 hover:text-white hover:border-white'
+                                }
                   `}
-                        title="Capture audio from this tab to generate captions"
-                    >
-                        <MicIcon active={isCapturingAudio} />
-                        {isCapturingAudio ? 'LISTENING' : 'LINK AUDIO'}
-                    </button>
+                            title="Capture audio from this tab to generate captions"
+                        >
+                            <MicIcon active={isCapturingAudio} />
+                            {isCapturingAudio ? 'LISTENING' : 'LINK AUDIO'}
+                        </button>
 
-                    {/* Download Button */}
-                    <button
-                        onClick={handleDownload}
-                        disabled={isDownloading || (isDirectStream && videoUrl.includes('.m3u8') && !videoUrl.startsWith('blob:')) || false}
-                        className={`
+                        {/* Download Button */}
+                        <button
+                            onClick={handleDownload}
+                            disabled={isDownloading || (isActiveDirectStream && activeUrl.includes('.m3u8') && !activeUrl.startsWith('blob:')) || false}
+                            className={`
                       flex items-center gap-2 px-3 py-1 text-xs font-bold uppercase tracking-widest border transition-all
                       ${isDownloading
-                                ? 'bg-white text-black border-white animate-pulse'
-                                : 'bg-black/60 text-gray-300 border-gray-600 hover:text-white hover:border-white disabled:opacity-30 disabled:cursor-not-allowed'
-                            }
+                                    ? 'bg-white text-black border-white animate-pulse'
+                                    : 'bg-black/60 text-gray-300 border-gray-600 hover:text-white hover:border-white disabled:opacity-30 disabled:cursor-not-allowed'
+                                }
                   `}
-                        title={isDownloading ? "Downloading..." : "Download Video to Disk & Storage"}
-                    >
-                        {isDownloading ? <LoadingSpinnerIcon /> : <DownloadIcon />}
-                        {isDownloading ? 'SAVING...' : 'SAVE'}
-                    </button>
-                </div>
-            )}
+                            title={isDownloading ? "Downloading..." : "Download Video to Disk & Storage"}
+                        >
+                            {isDownloading ? <LoadingSpinnerIcon /> : <DownloadIcon />}
+                            {isDownloading ? 'SAVING...' : 'SAVE'}
+                        </button>
+
+                        {/* AUTO CLIP TOGGLE - ALWAYS AVAILABLE NOW */}
+                        <button
+                            onClick={toggleAutoClip}
+                            className={`
+                        flex items-center gap-2 px-3 py-1 text-xs font-bold uppercase tracking-widest border transition-all
+                        ${isAutoClip
+                                    ? 'bg-purple-900/80 text-white border-purple-500 animate-pulse'
+                                    : 'bg-black/60 text-gray-300 border-gray-600 hover:text-white hover:border-white'
+                                }
+                    `}
+                            title="Auto-Clip Mode: Random seeking every <30s"
+                        >
+                            <ShuffleIcon className="w-5 h-5" />
+                            {isAutoClip ? 'VOID LOOP' : 'AUTO CLIP'}
+                        </button>
+                    </div>
+                )
+            }
 
             {/* --- UI Elements --- */}
 
-            {playbackError && !isEmbed && (
-                <div className="absolute inset-0 flex items-center justify-center bg-black/80 z-40">
-                    <div className="text-white text-center p-4 bg-black border border-white/50 rounded-sm">
-                        <p className="font-bold mb-2 uppercase tracking-widest">Playback Error</p>
-                        <p>{playbackError}</p>
-                        <p className="text-sm text-gray-400 mt-2">Try selecting a different video.</p>
-                    </div>
-                </div>
-            )}
-
-            {qualityLevels.length > 0 && !playbackError && !isEmbed && (
-                <div className="absolute bottom-16 right-4 z-50">
-                    {isQualityMenuOpen && (
-                        <div className="absolute bottom-full right-0 mb-2 w-28 bg-black/90 backdrop-blur-sm rounded-none py-1 border border-white/30 shadow-lg">
-                            <button onClick={() => handleQualityChange(-1)} className={`w-full text-left px-3 py-1 text-sm transition-colors ${currentQuality === -1 ? 'bg-white text-black font-bold' : 'text-white hover:bg-white/20'}`}>
-                                Auto
-                            </button>
-                            {qualityLevels.map((level, index) => (
-                                <button key={`${level.height}-${level.bitrate}`} onClick={() => handleQualityChange(index)} className={`w-full text-left px-3 py-1 text-sm transition-colors ${currentQuality === index ? 'bg-white text-black font-bold' : 'text-white hover:bg-white/20'}`}>
-                                    {level.height}p
-                                </button>
-                            ))}
+            {
+                playbackError && !isEmbed && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/80 z-40">
+                        <div className="text-white text-center p-4 bg-black border border-white/50 rounded-sm">
+                            <p className="font-bold mb-2 uppercase tracking-widest">Playback Error</p>
+                            <p>{playbackError}</p>
+                            <p className="text-sm text-gray-400 mt-2">Try selecting a different video.</p>
                         </div>
-                    )}
-                    <button
-                        onClick={() => setIsQualityMenuOpen(!isQualityMenuOpen)}
-                        className="p-2 rounded-full bg-black/60 text-white hover:bg-white hover:text-black transition-colors border border-white/30"
-                    >
-                        <CogIcon />
-                    </button>
-                </div>
-            )}
+                    </div>
+                )
+            }
 
-            {!videoUrl && !isStreamLoading && !playbackError && (
-                <div className="text-gray-600 text-center animate-pulse relative z-10">
-                    <p className="text-xl font-bold tracking-[0.3em] uppercase">Void Stream Inactive</p>
-                    <p className="text-xs mt-2 uppercase">Awaiting Input Coordinates</p>
-                </div>
-            )}
+            {
+                qualityLevels.length > 0 && !playbackError && !isEmbed && (
+                    <div className="absolute bottom-16 right-4 z-50">
+                        {isQualityMenuOpen && (
+                            <div className="absolute bottom-full right-0 mb-2 w-28 bg-black/90 backdrop-blur-sm rounded-none py-1 border border-white/30 shadow-lg">
+                                <button onClick={() => handleQualityChange(-1)} className={`w-full text-left px-3 py-1 text-sm transition-colors ${currentQuality === -1 ? 'bg-white text-black font-bold' : 'text-white hover:bg-white/20'}`}>
+                                    Auto
+                                </button>
+                                {qualityLevels.map((level, index) => (
+                                    <button key={`${level.height}-${level.bitrate}`} onClick={() => handleQualityChange(index)} className={`w-full text-left px-3 py-1 text-sm transition-colors ${currentQuality === index ? 'bg-white text-black font-bold' : 'text-white hover:bg-white/20'}`}>
+                                        {level.height}p
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+                        <button
+                            onClick={() => setIsQualityMenuOpen(!isQualityMenuOpen)}
+                            className="p-2 rounded-full bg-black/60 text-white hover:bg-white hover:text-black transition-colors border border-white/30"
+                        >
+                            <CogIcon />
+                        </button>
+                    </div>
+                )
+            }
 
-            {isStreamLoading && (
-                <div className="absolute inset-0 bg-black z-20 flex flex-col items-center justify-center">
-                    <LoadingSpinnerIcon />
-                    <p className="mt-4 text-white text-xs font-mono tracking-widest animate-pulse">ESTABLISHING CONNECTION...</p>
-                </div>
-            )}
-        </div>
+            {
+                !videoUrl && !isStreamLoading && !playbackError && (
+                    <div className="text-gray-600 text-center animate-pulse relative z-10">
+                        <p className="text-xl font-bold tracking-[0.3em] uppercase">Void Stream Inactive</p>
+                        <p className="text-xs mt-2 uppercase">Awaiting Input Coordinates</p>
+                    </div>
+                )
+            }
+
+            {
+                isStreamLoading && (
+                    <div className="absolute inset-0 bg-black z-20 flex flex-col items-center justify-center">
+                        <LoadingSpinnerIcon />
+                        <p className="mt-4 text-white text-xs font-mono tracking-widest animate-pulse">ESTABLISHING CONNECTION...</p>
+                    </div>
+                )
+            }
+        </div >
     );
 };
+

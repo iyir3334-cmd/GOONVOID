@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState, useMemo } from 'react';
 import { VideoResult } from '../services/videoService';
-import { TrashIcon, PlayIcon, FilterIcon } from './icons';
+import { TrashIcon, PlayIcon, FilterIcon } from './UIIcons';
 
 interface VerticalFeedProps {
     videos: VideoResult[];
@@ -13,7 +13,7 @@ export const VerticalFeed: React.FC<VerticalFeedProps> = ({ videos, onClose, onD
     const containerRef = useRef<HTMLDivElement>(null);
     const [playingId, setPlayingId] = useState<string | null>(null);
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-    
+
     // Store resolved playable URLs: { [pageUrl]: streamUrl }
     const [resolvedUrls, setResolvedUrls] = useState<Record<string, string>>({});
     const [loadingMap, setLoadingMap] = useState<Record<string, boolean>>({});
@@ -39,16 +39,16 @@ export const VerticalFeed: React.FC<VerticalFeedProps> = ({ videos, onClose, onD
 
         // Otherwise, resolve via service
         const resolveStream = async () => {
-             setLoadingMap(prev => ({ ...prev, [key]: true }));
-             try {
-                 const { getVideoStreamUrl } = await import('../services/videoService');
-                 const streamUrl = await getVideoStreamUrl(video);
-                 setResolvedUrls(prev => ({ ...prev, [key]: streamUrl }));
-             } catch (e) {
-                 console.error("Failed to resolve stream for feed:", video.title, e);
-             } finally {
-                 setLoadingMap(prev => ({ ...prev, [key]: false }));
-             }
+            setLoadingMap(prev => ({ ...prev, [key]: true }));
+            try {
+                const { getVideoStreamUrl } = await import('../services/videoService');
+                const streamUrl = await getVideoStreamUrl(video);
+                setResolvedUrls(prev => ({ ...prev, [key]: streamUrl }));
+            } catch (e) {
+                console.error("Failed to resolve stream for feed:", video.title, e);
+            } finally {
+                setLoadingMap(prev => ({ ...prev, [key]: false }));
+            }
         };
 
         resolveStream();
@@ -76,7 +76,7 @@ export const VerticalFeed: React.FC<VerticalFeedProps> = ({ videos, onClose, onD
                         videoElement.currentTime = 0;
                         // Only play if src is valid (it might be empty if waiting for resolution)
                         if (videoElement.src && videoElement.src !== window.location.href) {
-                             videoElement.play().catch(e => console.log("Autoplay blocked", e));
+                            videoElement.play().catch(e => console.log("Autoplay blocked", e));
                         }
                     }
                 } else {
@@ -111,29 +111,29 @@ export const VerticalFeed: React.FC<VerticalFeedProps> = ({ videos, onClose, onD
                 <div className="absolute top-0 left-0 right-0 z-20 p-4 flex justify-between items-start bg-gradient-to-b from-black/80 to-transparent pointer-events-none">
                     <div className="text-white drop-shadow-md pointer-events-auto">
                         <h2 className="font-bold uppercase tracking-widest text-lg flex items-center gap-2">
-                             {title}
-                             <span className="text-[10px] bg-white text-black px-2 rounded-full">{videos.length}</span>
+                            {title}
+                            <span className="text-[10px] bg-white text-black px-2 rounded-full">{videos.length}</span>
                         </h2>
                     </div>
                     <div className="flex gap-2 pointer-events-auto">
-                        <button 
+                        <button
                             onClick={() => setIsSidebarOpen(!isSidebarOpen)}
                             className={`p-2 rounded-full text-white transition-all border ${isSidebarOpen ? 'bg-white text-black border-white' : 'bg-black/40 border-white/20 hover:bg-white/10'}`}
                             title="Toggle Playlist"
                         >
                             <FilterIcon />
                         </button>
-                        <button 
+                        <button
                             onClick={onClose}
                             className="p-2 bg-black/40 hover:bg-red-600/80 backdrop-blur-md rounded-full text-white transition-all border border-white/20"
                         >
-                            
+
                         </button>
                     </div>
                 </div>
 
                 {/* Scroll Container */}
-                <div 
+                <div
                     ref={containerRef}
                     className="flex-1 overflow-y-scroll snap-y snap-mandatory scroll-smooth no-scrollbar w-full h-full"
                     style={{ scrollBehavior: 'smooth' }}
@@ -150,8 +150,8 @@ export const VerticalFeed: React.FC<VerticalFeedProps> = ({ videos, onClose, onD
 
                             // Determine if the stream is an embed or direct video
                             const isDirectStream = streamUrl ? (
-                                streamUrl.includes('.mp4') || 
-                                streamUrl.includes('.m3u8') || 
+                                streamUrl.includes('.mp4') ||
+                                streamUrl.includes('.m3u8') ||
                                 streamUrl.includes('.webm') ||
                                 streamUrl.includes('.mov') ||
                                 streamUrl.startsWith('blob:') ||
@@ -160,7 +160,7 @@ export const VerticalFeed: React.FC<VerticalFeedProps> = ({ videos, onClose, onD
                             const isEmbed = streamUrl && !isDirectStream;
 
                             return (
-                                <div 
+                                <div
                                     key={`${key}-${index}`}
                                     data-id={key}
                                     className="feed-item w-full h-full snap-start relative flex items-center justify-center bg-black border-b border-white/10"
@@ -172,14 +172,14 @@ export const VerticalFeed: React.FC<VerticalFeedProps> = ({ videos, onClose, onD
                                                 <iframe
                                                     src={streamUrl}
                                                     className="w-full h-full"
-                                                    allow="autoplay; fullscreen; picture-in-picture"
+                                                    allow="autoplay; fullscreen; picture-in-picture; screen-wake-lock"
                                                     allowFullScreen
                                                     style={{ border: 'none' }}
                                                 />
                                             ) : (
-                                                <div 
+                                                <div
                                                     className="w-full h-full flex items-center justify-center bg-black"
-                                                    style={{ 
+                                                    style={{
                                                         backgroundImage: vid.thumbnailUrl ? `url(${vid.thumbnailUrl})` : 'none',
                                                         backgroundSize: 'contain',
                                                         backgroundPosition: 'center',
@@ -198,7 +198,7 @@ export const VerticalFeed: React.FC<VerticalFeedProps> = ({ videos, onClose, onD
                                                 className="w-full h-full object-contain max-h-screen"
                                                 loop
                                                 playsInline
-                                                controls={true} 
+                                                controls={true}
                                                 autoPlay={playingId === key}
                                                 onClick={(e) => {
                                                     const v = e.currentTarget;
@@ -227,11 +227,11 @@ export const VerticalFeed: React.FC<VerticalFeedProps> = ({ videos, onClose, onD
                                             <span className="uppercase px-2 py-0.5 border border-gray-600 rounded">{vid.source}</span>
                                         </div>
                                     </div>
-                                    
-                                     {/* Floating Action Buttons */}
+
+                                    {/* Floating Action Buttons */}
                                     {onDelete && (
                                         <div className="absolute bottom-20 right-4 z-20 flex flex-col gap-4">
-                                            <button 
+                                            <button
                                                 onClick={() => {
                                                     if (confirm("Permanently delete this clip?")) {
                                                         onDelete(key);
@@ -260,7 +260,7 @@ export const VerticalFeed: React.FC<VerticalFeedProps> = ({ videos, onClose, onD
                         {videos.map((vid, idx) => {
                             const isPlaying = playingId === vid.pageUrl;
                             return (
-                                <div 
+                                <div
                                     key={`${vid.pageUrl}-${idx}`}
                                     onClick={() => scrollToVideo(idx)}
                                     className={`

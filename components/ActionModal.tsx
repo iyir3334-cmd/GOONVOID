@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { VideoResult } from '../services/videoService';
-import { CopyIcon, PlayIcon, CodeIcon } from './icons';
+import { CopyIcon, PlayIcon, CodeIcon } from './UIIcons';
 
 interface ActionModalProps {
     video: VideoResult;
@@ -37,15 +37,15 @@ export const ActionModal: React.FC<ActionModalProps> = ({ video, onClose, onPlay
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/90 backdrop-blur-sm animate-in fade-in duration-200">
             <div className="relative w-full max-w-lg bg-black border border-white rounded-none shadow-2xl overflow-hidden transform transition-all">
-                
+
                 {/* Header with Thumbnail Blur Background */}
                 <div className="relative h-32 overflow-hidden">
-                    <div 
+                    <div
                         className="absolute inset-0 bg-cover bg-center blur-md opacity-40 grayscale"
                         style={{ backgroundImage: `url(${video.thumbnailUrl})` }}
                     />
                     <div className="absolute inset-0 bg-gradient-to-b from-transparent to-black" />
-                    <button 
+                    <button
                         onClick={onClose}
                         className="absolute top-2 right-2 p-2 bg-black/50 hover:bg-white hover:text-black text-white transition-colors border border-white/20"
                     >
@@ -74,7 +74,7 @@ export const ActionModal: React.FC<ActionModalProps> = ({ video, onClose, onPlay
                     ) : (
                         <>
                             <p className="text-gray-400 text-sm text-center uppercase tracking-widest">Initiate Protocol</p>
-                            
+
                             <div className="grid gap-3">
                                 <button
                                     onClick={onPlay}
@@ -83,7 +83,7 @@ export const ActionModal: React.FC<ActionModalProps> = ({ video, onClose, onPlay
                                     <PlayIcon />
                                     PLAY NOW
                                 </button>
-                                
+
                                 <div className="grid grid-cols-2 gap-3">
                                     <button
                                         onClick={handleCopyUrl}
@@ -92,7 +92,7 @@ export const ActionModal: React.FC<ActionModalProps> = ({ video, onClose, onPlay
                                         <CopyIcon />
                                         Copy URL
                                     </button>
-                                    
+
                                     <button
                                         onClick={handleCopyEmbed}
                                         className="flex items-center justify-center gap-2 p-3 bg-black hover:bg-white hover:text-black text-gray-300 font-medium rounded-none border border-white/30 transition-colors"

@@ -6,7 +6,7 @@ import { VideoList } from './components/VideoList';
 import { ActionModal } from './components/ActionModal';
 import { VerticalFeed } from './components/VerticalFeed'; // Import new feed component
 import { getVideoStreamUrl, searchVideos, VideoResult, PROVIDER_KEYS, getProviderKeyFromUrl, PROVIDERS, ProviderKey, fetchMetadata, getTrendingVideos, getTrendingPornstars, PornstarResult, getActorVideos, searchPornstars } from './services/videoService';
-import { InfoIcon, HistoryIcon, FilterIcon, StarIcon, PlayIcon, DownloadIcon, UploadIcon, TrashIcon, LoadingSpinnerIcon, MobileIcon, TrendingIcon } from './components/icons';
+import { InfoIcon, HistoryIcon, FilterIcon, StarIcon, PlayIcon, DownloadIcon, UploadIcon, TrashIcon, LoadingSpinnerIcon, MobileIcon, TrendingIcon } from './components/UIIcons';
 import { saveToHistory, getHistory, clearHistory, getFavoriteProviders, saveFavoriteProvider, removeFavoriteProvider } from './services/storageService';
 import { HypnoOverlay } from './components/HypnoOverlay';
 import { saveLocalVideo, getLocalVideos, deleteLocalVideo, LocalVideo } from './services/localVideoService';
@@ -482,7 +482,15 @@ const App: React.FC = () => {
     const nextPage = trendingPornstarsPage + 1;
 
     try {
-      const stars = await getTrendingPornstars(trendingProvider, nextPage);
+      let stars: PornstarResult[] = [];
+      if (pornstarSearchQuery.trim()) {
+        // If searching, load next page of search results
+        stars = await searchPornstars(pornstarSearchQuery, [trendingProvider], nextPage);
+      } else {
+        // Otherwise, load next page of trending
+        stars = await getTrendingPornstars(trendingProvider, nextPage);
+      }
+
       if (stars.length > 0) {
         setTrendingPornstars(prev => [...prev, ...stars]);
         setTrendingPornstarsPage(nextPage);
@@ -627,10 +635,14 @@ const App: React.FC = () => {
             <VideoPlayer
               videoUrl={videoStreamUrl}
               videoTitle={currentVideo?.title || null}
+              videoSource={currentVideo?.source || null}
               isStreamLoading={isStreamLoading}
               isHypnoMode={isHypnoMode}
               onVideoSaved={loadLocalVideos}
             />
+
+            {/* FAVICON GIF HANDLER */}
+            <FaviconHandler isPlaying={!!videoStreamUrl} />
 
             {/* Hypno Toggle Controls */}
             <div className="absolute top-4 right-4 z-40 flex flex-col gap-2 items-end">
@@ -1344,6 +1356,26 @@ const App: React.FC = () => {
       </div>
     </div>
   );
+};
+
+
+// --- DYNAMIC FAVICON HANDLER ---
+// Placeholder for user-provided GIF
+const FAVICON_GIF_URL = "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExNHJ6eXlyeXlyeXlyeXlyeXlyeXlyeXlyeXlyeXlyeXlyeXlyeXlyJmVwPXYxX2ludGVybmFsX2dpZl9ieV9pZCZjdD1n/3o7bu3XilJ5BOiSGic/giphy.gif";
+
+const FaviconHandler: React.FC<{ isPlaying: boolean }> = ({ isPlaying }) => {
+  useEffect(() => {
+    const link = document.querySelector("link[rel*='icon']") as HTMLLinkElement || document.createElement('link');
+    link.type = isPlaying ? 'image/gif' : 'image/x-icon';
+    link.rel = 'shortcut icon';
+    link.href = isPlaying ? FAVICON_GIF_URL : '/favicon.ico';
+
+    if (!link.parentNode) {
+      document.getElementsByTagName('head')[0].appendChild(link);
+    }
+  }, [isPlaying]);
+
+  return null;
 };
 
 export default App;

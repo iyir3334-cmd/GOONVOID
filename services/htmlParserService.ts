@@ -55,23 +55,61 @@ const pornhubParser: SiteParser = {
             }
         }
 
-        // Strategy 2: Fallback to simple link regex if Strategy 1 fails (e.g., mobile view)
+        // Strategy 2: Fallback to simple link regex if Strategy 1 fails (e.g., pornstar pages, mobile view)
         if (results.length === 0) {
-            const linkRegex = /href="(\/view_video\.php\?viewkey=[^"]+)"[^>]+title="([^"]+)"/g;
+            // For pornstar pages, we need to be more selective to avoid picking up sidebar/promotional videos
+            // Look for video links with titles and nearby thumbnails
+            const linkRegex = /href="(\/view_video\.php\?viewkey=[^"]+)"[^>]*>[\s\S]{0,500}?<img[^>]+(?:src|data-src|data-thumb_url)="([^"]+)"[\s\S]{0,500}?title="([^"]+)"/gi;
+
             let match;
+            const seenKeys = new Set<string>();
+
             while ((match = linkRegex.exec(html)) !== null) {
                 const path = match[1];
-                const title = match[2];
+                const thumb = match[2];
+                const title = match[3];
 
-                // Try to find an image nearby
-                // This is less accurate but a reasonable fallback
-                if (!uniqueKeys.has(path)) {
-                    results.push({
-                        title: decodeHtmlEntities(title),
-                        pageUrl: resolveUrl(baseUrl, path),
-                        thumbnailUrl: '', // Thumbnail might be missing in fallback
-                        source: 'pornhub'
-                    });
+                // Extract viewkey for deduplication
+                const viewkeyMatch = /viewkey=([^&"]+)/.exec(path);
+                if (!viewkeyMatch) continue;
+                const viewkey = viewkeyMatch[1];
+
+                if (seenKeys.has(viewkey)) continue;
+                seenKeys.add(viewkey);
+
+                // Filter out obvious promotional content
+                // Skip videos with generic/spam titles or missing essential data
+                if (!title || title.length < 5 || !thumb) continue;
+
+                results.push({
+                    title: decodeHtmlEntities(title),
+                    pageUrl: resolveUrl(baseUrl, path),
+                    thumbnailUrl: resolveUrl(baseUrl, thumb),
+                    source: 'pornhub'
+                });
+
+                // Limit results to avoid picking up too many sidebar videos
+                if (results.length >= 50) break;
+            }
+
+            // If still no results, try even simpler pattern (last resort)
+            if (results.length === 0) {
+                const simpleLinkRegex = /href="(\/view_video\.php\?viewkey=[^"]+)"[^>]+title="([^"]+)"/g;
+                while ((match = simpleLinkRegex.exec(html)) !== null) {
+                    const path = match[1];
+                    const title = match[2];
+
+                    if (!uniqueKeys.has(path) && title && title.length > 5) {
+                        uniqueKeys.add(path);
+                        results.push({
+                            title: decodeHtmlEntities(title),
+                            pageUrl: resolveUrl(baseUrl, path),
+                            thumbnailUrl: '', // Thumbnail might be missing in fallback
+                            source: 'pornhub'
+                        });
+                    }
+
+                    if (results.length >= 30) break;
                 }
             }
         }
@@ -306,34 +344,78 @@ export const extractPornstarResultsFromHtml = async (
 
     // 1. Specific Parsers
     if (baseUrl.includes('pornhub')) {
-        // Pornhub Pornstars - Actual structure from browser:
-        // <li data-value="Name" class="alpha"><a href="/pornstar/slug"><img ...>Name</a></li>
-        const itemRegex = /<li[^>]*>([\s\S]*?)<a[^>]+href="(\/pornstar\/[^"]+)"[^>]*>([\s\S]*?)<\/a>/g;
+        // Pornhub Pornstars & Models
+        // Container pattern: <li class="performerCard" ...>, <div class="pornstarMiniature" ...>, or <li ...><div class="wrap">
+        // We look for name/link first then find image.
+        const itemRegex = /<li[^>]*>([\s\S]*?)<\/li>|<div[^>]+class="[^"]*(?:performerCard|pornstarMiniature|wrap)[^"]*"[^>]*>([\s\S]*?)<\/div>/g;
         let match;
         while ((match = itemRegex.exec(html)) !== null) {
-            const linkPath = match[2];
-            const content = match[3];
+            const content = match[1] || match[2];
 
-            // Extract name - it's the text content after the img tag
-            // Pattern: <img ...> Name  OR  data-value="Name" in parent li
-            const textMatch = />\s*([^<]+)\s*$/.exec(content);
-            const dataValueMatch = /data-value="([^"]+)"/.exec(match[1]);
+            // Link and Name
+            // Paths: /pornstar/name or /model/name
+            const linkMatch = /<a[^>]+href="(\/(?:pornstar|model)\/[^"]+)"[^>]*>([\s\S]*?)<\/a>/.exec(content);
+            if (!linkMatch) continue;
 
-            const name = textMatch ? textMatch[1].trim() : (dataValueMatch ? dataValueMatch[1].trim() : null);
+            const path = linkMatch[1];
+            const nameContent = linkMatch[2];
 
-            // Extract image
-            const imgMatch = /src="([^"]+)"/i.exec(content) || /data-src="([^"]+)"/i.exec(content);
+            // Extract Name: Look for the best match in order of specificity
+            // 1. Look for <a class="title">NAME</a> (most reliable for search results)
+            const titleLinkMatch = /<a[^>]+class="[^"]*title[^"]*"[^>]*>([^<]+)<\/a>/.exec(content);
+            // 2. Look for class="name" or similar
+            const specificNameMatch = /class="[^"]*\bname\b[^"]*"[^>]*>([^<]+)</.exec(content);
+            // 3. Image alt attribute
+            const altMatch = /<img[^>]+alt="([^"]*)"/i.exec(content);
 
-            if (name && linkPath) {
+            let name = '';
+            if (titleLinkMatch) {
+                // Most reliable for search results - the <a class="title"> link
+                name = titleLinkMatch[1].trim();
+            } else if (specificNameMatch) {
+                name = specificNameMatch[1].trim();
+            } else if (altMatch && altMatch[1] && !/pornstar|model/i.test(altMatch[1])) {
+                name = altMatch[1].trim();
+            } else {
+                name = nameContent.replace(/<[^>]+>/g, '').trim();
+            }
+
+            // Clean name from "Rank: X" or extra stuff if still messy
+            name = name.replace(/Rank:\s*\d+/i, '').trim();
+
+            // If name is still just a number (rank), try to find the actual name elsewhere
+            if (/^\d+$/.test(name) || !name) {
+                const betterNameMatch = /<a[^>]+href="[^"]+"[^>]*>([^<0-9][^<]+)<\/a>/.exec(content);
+                if (betterNameMatch) name = betterNameMatch[1].trim();
+            }
+
+            // Extract Thumbnail: support lazy loading attributes
+            const imgMatch = /<img[^>]+(?:src|data-image|data-medium-thumb|data-thumb_url)="([^"]+)"/i.exec(content);
+            const thumb = imgMatch ? imgMatch[1] : '';
+
+            if (name && path) {
                 results.push({
                     name: decodeHtmlEntities(name),
-                    pageUrl: resolveUrl(baseUrl, linkPath),
-                    thumbnailUrl: imgMatch ? resolveUrl(baseUrl, imgMatch[1]) : '',
+                    pageUrl: resolveUrl(baseUrl, path),
+                    thumbnailUrl: thumb ? resolveUrl(baseUrl, thumb) : '',
                     source: 'pornhub'
                 });
             }
         }
 
+        // Generic fallback for PH if blocks didn't match (simpler links)
+        if (results.length === 0) {
+            const fallbackRegex = /<a[^>]+href="(\/(?:pornstar|model)\/[^"]+)"[^>]*>([^<]+)<\/a>/g;
+            let m;
+            while ((m = fallbackRegex.exec(html)) !== null) {
+                results.push({
+                    name: decodeHtmlEntities(m[2].trim()),
+                    pageUrl: resolveUrl(baseUrl, m[1]),
+                    thumbnailUrl: '',
+                    source: 'pornhub'
+                });
+            }
+        }
     } else if (baseUrl.includes('xvideos')) {
         // XVideos Pornstars
         // Structure: <div class="thumb-block thumb-block-profile "><div class="thumb-inside">...

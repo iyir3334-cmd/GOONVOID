@@ -31,6 +31,10 @@ const fetchSource = async (url: string): Promise<string> => {
     try {
         const response = await fetch(proxyFetchUrl);
         if (!response.ok) {
+            // 403 Forbidden is common for trending pages - Pornhub blocks automated requests
+            if (response.status === 403) {
+                console.warn(`[videoService:fetchSource] 403 Forbidden from ${url} - Pornhub may be blocking this request`);
+            }
             throw new Error(`Local Proxy fetch failed with status: ${response.status} ${response.statusText}`);
         }
 
@@ -62,21 +66,71 @@ export const resolvePlayableUrl = async (embedUrl: string): Promise<string | nul
 
         // --- STRATEGY 1: XVideos / Generic HTML5 Player Specific Keys ---
         // XVideos uses html5player.setVideoUrlHigh('...') or Low
-        const xvHigh = html.match(/setVideoUrlHigh\(['"]([^'"]+)['"]\)/);
-        if (xvHigh && xvHigh[1]) {
-            console.log(`[videoService] Found XVideos HIGH match`);
-            return xvHigh[1];
+        const xvMatches = html.match(/setVideoUrl(High|Low|4k|1080|720)\s*\(\s*['"]([^'"]+)['"]\s*\)/gi);
+        if (xvMatches) {
+            const sortedXv = xvMatches.map(m => {
+                const urlMatch = m.match(/setVideoUrl(High|Low|4k|1080|720)\s*\(\s*['"]([^'"]+)['"]\s*\)/i);
+                if (!urlMatch) return { url: '', score: 0 };
+                const label = urlMatch[1].toLowerCase();
+                let score = 0;
+                if (label.includes('4k')) score = 1000;
+                if (label.includes('1080')) score = 500;
+                if (label.includes('high')) score = 400;
+                if (label.includes('720')) score = 300;
+                if (label.includes('low')) score = 100;
+                return { url: urlMatch[2], score };
+            }).sort((a, b) => b.score - a.score);
+
+            if (sortedXv.length > 0 && sortedXv[0].url) {
+                console.log(`[videoService] Found XVideos best match: ${sortedXv[0].score}`);
+                return sortedXv[0].url;
+            }
         }
 
-        const xvLow = html.match(/setVideoUrlLow\(['"]([^'"]+)['"]\)/);
-        if (xvLow && xvLow[1]) {
-            console.log(`[videoService] Found XVideos LOW match`);
-            return xvLow[1];
+        // BRAZZ-Specific Patterns (Often in config or player setup)
+        const brazzPatterns = [
+            /["']file["']\s*:\s*["']([^"']+\.mp4[^"']*)["']/i,
+            /["']src["']\s*:\s*["']([^"']+\.mp4[^"']*)["']/i,
+            /sources:\s*\[\s*{\s*file:\s*["']([^"']+)["']/i,
+            /video_url\s*=\s*['"]([^'"]+)['"]/i,
+            /urlHigh\s*=\s*['"]([^'"]+)['"]/i,
+            /video_hd\s*=\s*['"]([^'"]+)['"]/i,
+            /video_url_1080p\s*=\s*['"]([^'"]+)['"]/i,
+            /get_file\/[^"']+/i
+        ];
+
+        for (const pattern of brazzPatterns) {
+            const match = html.match(pattern);
+            if (match) {
+                const rawUrl = match[1] || match[0];
+                const url = rawUrl.replace(/\\/g, '');
+                console.log(`[videoService] Found Brazz/Generic pattern match: ${url}`);
+                if (url.startsWith('http')) return url;
+                // Resolve relative URL
+                const domain = embedUrl.split('/').slice(0, 3).join('/');
+                return domain + (url.startsWith('/') ? '' : '/') + url;
+            }
+        }
+
+        // Pornhub JSON/Flashvars pattern
+        const flashVarsMatch = html.match(/flashvars_\d+\s*=\s*({.*?});/);
+        if (flashVarsMatch && flashVarsMatch[1]) {
+            try {
+                const config = JSON.parse(flashVarsMatch[1]);
+                if (config.mediaDefinitions) {
+                    const defs = config.mediaDefinitions.filter((d: any) => d.videoUrl && !d.videoUrl.includes('m3u8'));
+                    const hq = defs.find((d: any) => d.quality === '1080' || d.quality === 1080) ||
+                        defs.sort((a: any, b: any) => parseInt(b.quality || 0) - parseInt(a.quality || 0))[0];
+                    if (hq) return hq.videoUrl;
+                }
+            } catch (e) {
+                console.warn("[videoService] Failed to parse Flashvars JSON");
+            }
         }
 
         // --- STRATEGY 2: Generic MP4 Regex with Filtering ---
         // 1. Direct file regex strategy (mp4, webm, mov)
-        const mp4Regex = /(https?:\\?\/\\?\/[^"'\s<>]+\.(?:mp4|webm|mov))/gi;
+        const mp4Regex = /(https?:\\?\/\\?\/[^"'\s<>]+\.(?:mp4|webm|mov)(?:[^"'\s<>]*))/gi;
         const matches = html.match(mp4Regex);
 
         if (matches && matches.length > 0) {
@@ -86,21 +140,26 @@ export const resolvePlayableUrl = async (embedUrl: string): Promise<string | nul
                 return !lower.includes('preview') &&
                     !lower.includes('thumb') &&
                     !lower.includes('ad_') &&
-                    !lower.includes('doubleclick');
+                    !lower.includes('doubleclick') &&
+                    !lower.includes('player.php');
             });
 
             if (validMatches.length > 0) {
-                // Clean up the URL (remove backslashes from JSON escaping)
-                let bestMatch = validMatches[0].replace(/\\/g, '');
+                // CLEAN AND SCORE MATCHES based on quality
+                const scoredMatches = validMatches.map(url => {
+                    const cleanUrl = url.replace(/\\/g, '');
+                    let score = 0;
+                    if (cleanUrl.includes('1080')) score += 500;
+                    if (cleanUrl.includes('720')) score += 100;
+                    if (cleanUrl.includes('480')) score += 20;
+                    if (cleanUrl.includes('hd')) score += 50;
+                    if (cleanUrl.includes('high')) score += 40;
+                    if (cleanUrl.includes('mp4')) score += 10;
+                    return { url: cleanUrl, score };
+                }).sort((a, b) => b.score - a.score);
 
-                // Prefer matches that have high resolution indicators
-                const highResMatch = validMatches.find(m => m.includes('1080') || m.includes('720') || m.includes('hd') || m.includes('high'));
-                if (highResMatch) {
-                    bestMatch = highResMatch.replace(/\\/g, '');
-                }
-
-                console.log(`[videoService:resolvePlayableUrl] Found file via Regex: ${bestMatch}`);
-                return bestMatch;
+                console.log(`[videoService:resolvePlayableUrl] Ranked matches:`, scoredMatches.slice(0, 3));
+                return scoredMatches[0].url;
             }
         }
 
@@ -329,8 +388,18 @@ const genericGetTrending = async (config: ProviderConfig, page: number = 1): Pro
         if (config.key === 'pornhub') {
             url += `&page=${page}`;
         } else if (config.key === 'xvideos') {
-            // Remove trailing slash if checks
-            url = `${config.baseUrl}/best/${page}`;
+            // XVideos Trending uses /best/YYYY-MM/N or /best/N
+            // We'll use the current Year-Month for accuracy on deep pages
+            const now = new Date();
+            const year = now.getFullYear();
+            const month = String(now.getMonth() + 1).padStart(2, '0');
+            const dateStr = `${year}-${month}`;
+
+            // Note: XVideos uses 0-based indexing for these pages sometimes, 
+            // but the /best/YYYY-MM/N pattern usually works with N starting at 0 or 1.
+            // Let's use N = page - 1 to follow the standard offset.
+            const xvPage = page - 1;
+            url = `${config.baseUrl}/best/${dateStr}/${xvPage}`;
         } else if (config.key === 'brazz') {
             url = `${config.baseUrl}${config.trendingPath}page/${page}/`;
         }
@@ -589,13 +658,13 @@ export const getActorVideos = async (actor: PornstarResult, page: number = 1): P
     let pageUrl = actor.pageUrl;
 
     // Construct pagination URL based on provider
-    if (page > 1) {
-        if (actor.source === 'pornhub') {
-            // Pornhub: https://www.pornhub.com/pornstar/name/videos?page=2
-            // Ensure we are hitting the /videos endpoint
-            const baseUrl = actor.pageUrl.includes('/videos') ? actor.pageUrl : `${actor.pageUrl}/videos`;
-            pageUrl = `${baseUrl}?page=${page}`;
-        } else if (actor.source === 'brazz') {
+    if (actor.source === 'pornhub') {
+        // Pornhub: Always use /videos endpoint - https://www.pornhub.com/pornstar/name/videos?page=N
+        // Ensure we're hitting the /videos endpoint even for page 1
+        const baseUrl = actor.pageUrl.includes('/videos') ? actor.pageUrl : `${actor.pageUrl}/videos`;
+        pageUrl = page > 1 ? `${baseUrl}?page=${page}` : baseUrl;
+    } else if (page > 1) {
+        if (actor.source === 'brazz') {
             // Brazz: https://brazz.org/videos/models/ID/name/page/2/
             // Ensure trailing slash on base then append page/N/
             const baseUrl = actor.pageUrl.endsWith('/') ? actor.pageUrl : `${actor.pageUrl}/`;
